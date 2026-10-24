@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   User,
   Mail,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import PageHeader from '../components/common/PageHeader.jsx';
 import { useRole } from '../context/RoleContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import {
   getFaceVerificationStatus,
   requestCameraAccess,
@@ -23,22 +25,29 @@ import {
 
 export default function ProfilePage() {
   const { currentUser, currentRole } = useRole();
+  const { user, clearSession } = useAuth();
+  const navigate = useNavigate();
   const [consentGranted, setConsentGranted] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [faceStatusMessage, setFaceStatusMessage] = useState('');
   const [cameraStream, setCameraStream] = useState(null);
-  const [faceEnrollment, setFaceEnrollment] = useState(() => {
-    try {
-      const saved = localStorage.getItem('hcmlite_face_enrollment');
-      return saved ? JSON.parse(saved) : { enabled: false, provider: null, updatedAt: null };
-    } catch (error) {
-      return { enabled: false, provider: null, updatedAt: null };
-    }
+  const [faceEnrollment, setFaceEnrollment] = useState({
+    enabled: Boolean(user?.faceEnrolled),
+    provider: null,
+    updatedAt: null,
   });
   const faceStatus = getFaceVerificationStatus();
   const videoRef = useRef(null);
+
+  useEffect(() => {
+    setFaceEnrollment({
+      enabled: Boolean(user?.faceEnrolled),
+      provider: null,
+      updatedAt: null,
+    });
+  }, [user?.faceEnrolled]);
 
   useEffect(() => {
     if (videoRef.current && cameraStream) {
@@ -51,9 +60,6 @@ export default function ProfilePage() {
       }
     };
   }, [cameraStream]);
-
-  const activeUserId =
-    currentRole === 'HR' ? 'EMP-0012' : currentRole === 'ADMIN' ? 'EMP-0001' : 'EMP-0094';
 
   const openFaceCamera = async () => {
     if (!faceStatus.configured) {
@@ -105,8 +111,6 @@ export default function ProfilePage() {
     try {
       const imageDataUrl = captureFrameFromVideo(videoRef.current);
       const result = await enrollFace({
-        userId: activeUserId,
-        userRole: currentRole,
         imageDataUrl,
         consentGranted,
       });
@@ -122,9 +126,8 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      localStorage.setItem('hcmlite_face_enrollment', JSON.stringify(nextState));
       setFaceEnrollment(nextState);
-      setFaceStatusMessage('Face enrollment was submitted successfully to the configured verification service.');
+      setFaceStatusMessage('The authenticated server confirmed face enrollment.');
       setCameraOpen(false);
       setCameraStream(null);
     } catch (error) {
@@ -138,15 +141,26 @@ export default function ProfilePage() {
     }
   };
 
-  const removeFaceEnrollment = () => {
-    localStorage.removeItem('hcmlite_face_enrollment');
-    setFaceEnrollment({ enabled: false, provider: null, updatedAt: null });
-    setConsentGranted(false);
-    setFaceStatusMessage('Face enrollment has been removed from this profile after identity verification.');
-    setCameraOpen(false);
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
+  const removeFaceEnrollment = async () => {
+    try {
+      const response = await fetch('/api/v1/auth/face-enrollment', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consentWithdrawn: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Face enrollment could not be deleted.');
+      setFaceEnrollment({ enabled: false, provider: null, updatedAt: null });
+      setConsentGranted(false);
+      setFaceStatusMessage('Face enrollment was deleted. Sign-in is disabled until an administrator completes account recovery.');
+      setCameraOpen(false);
+      cameraStream?.getTracks().forEach((track) => track.stop());
       setCameraStream(null);
+      clearSession();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      setFaceStatusMessage(error.message || 'Face enrollment could not be deleted. Please contact your administrator.');
     }
   };
 

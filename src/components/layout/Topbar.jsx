@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import SearchInput from '../common/SearchInput.jsx';
 import NotificationButton from '../common/NotificationButton.jsx';
 import ProfileMenu from '../common/ProfileMenu.jsx';
+import BrandLogo from '../common/BrandLogo.jsx';
 
 export default function Topbar({ setMobileOpen }) {
   const location = useLocation();
@@ -53,6 +54,8 @@ export default function Topbar({ setMobileOpen }) {
         >
           <Menu className="w-5 h-5" />
         </button>
+
+        <BrandLogo size="small" className="md:hidden" />
 
         <div className="flex items-center gap-2 truncate">
           <span className="text-xs text-slate-400 hidden sm:inline">

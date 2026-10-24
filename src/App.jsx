@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { RoleProvider } from './context/RoleContext.jsx';
+import { AuthProvider } from './context/AuthContext.jsx';
 import { OrganizationProvider } from './context/OrganizationContext.jsx';
 import { EmployeeProvider } from './context/EmployeeContext.jsx';
 import { AttendanceProvider } from './context/AttendanceContext.jsx';
@@ -14,21 +15,23 @@ export default function App() {
   return (
     <BrowserRouter>
       <RoleProvider>
-        <CommunicationProvider>
-          <OrganizationProvider>
-            <EmployeeProvider>
-              <AttendanceProvider>
-                <LeaveProvider>
-                  <PayrollProvider>
-                    <ToastProvider>
-                      <AppRoutes />
-                    </ToastProvider>
-                  </PayrollProvider>
-                </LeaveProvider>
-              </AttendanceProvider>
-            </EmployeeProvider>
-          </OrganizationProvider>
-        </CommunicationProvider>
+        <AuthProvider>
+          <CommunicationProvider>
+            <OrganizationProvider>
+              <EmployeeProvider>
+                <AttendanceProvider>
+                  <LeaveProvider>
+                    <PayrollProvider>
+                      <ToastProvider>
+                        <AppRoutes />
+                      </ToastProvider>
+                    </PayrollProvider>
+                  </LeaveProvider>
+                </AttendanceProvider>
+              </EmployeeProvider>
+            </OrganizationProvider>
+          </CommunicationProvider>
+        </AuthProvider>
       </RoleProvider>
     </BrowserRouter>
   );

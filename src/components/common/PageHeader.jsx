@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronRight, Home } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import BrandLogo from './BrandLogo.jsx';
 
 export default function PageHeader({
   title,
@@ -14,7 +15,7 @@ export default function PageHeader({
         {breadcrumbs && breadcrumbs.length > 0 && (
           <nav className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5" aria-label="Breadcrumb">
             <Link to="/dashboard" className="hover:text-slate-800 transition-colors flex items-center gap-1">
-              <Home className="w-3.5 h-3.5" />
+              <BrandLogo size="tiny" />
               <span>HCM Lite</span>
             </Link>
             {breadcrumbs.map((crumb, idx) => (

@@ -2,11 +2,11 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { NAVIGATION_CONFIG } from '../../config/navigation.js';
 import { useRole } from '../../context/RoleContext.jsx';
+import BrandLogo from '../common/BrandLogo.jsx';
 import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Layers,
   X,
 } from 'lucide-react';
 
@@ -28,10 +28,10 @@ export default function Sidebar({
           onClick={() => setMobileOpen(false)}
           className="flex items-center gap-3 group focus:outline-none"
         >
-          {/* Logo mark */}
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0 group-hover:scale-105 transition-transform">
-            <Layers className="w-5 h-5 text-white" />
-          </div>
+          <BrandLogo
+            size={isCollapsed ? 'small' : 'medium'}
+            className="rounded-lg group-hover:opacity-90 transition-opacity"
+          />
           {!isCollapsed && (
             <div className="flex flex-col">
               <span className="font-bold text-base tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors">

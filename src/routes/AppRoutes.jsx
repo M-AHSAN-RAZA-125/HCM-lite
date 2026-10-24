@@ -1,8 +1,10 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import AppLayout from '../components/layout/AppLayout.jsx';
-import LoginPage from '../pages/LoginPage.jsx';
+import RoleSelectionPage from '../pages/RoleSelectionPage.jsx';
+import AuthenticationPage from '../pages/AuthenticationPage.jsx';
 import CompanySetupPage from '../pages/CompanySetupPage.jsx';
 import DashboardPage from '../pages/DashboardPage.jsx';
 import OrganizationPage from '../pages/OrganizationPage.jsx';
@@ -24,15 +26,23 @@ function AdminRoute({ children }) {
   return isAdmin ? children : <Navigate to="/dashboard" replace />;
 }
 
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (import.meta.env.DEV) return children;
+  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Checking your session…</div>;
+  return user ? children : <Navigate to="/login" replace />;
+}
+
 export default function AppRoutes() {
   return (
     <Routes>
       {/* Unauthenticated / Setup Entry Routes */}
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<RoleSelectionPage />} />
+      <Route path="/auth/:role" element={<AuthenticationPage />} />
       <Route path="/setup" element={<CompanySetupPage />} />
 
       {/* Authenticated Workspace Shell */}
-      <Route path="/" element={<AppLayout />}>
+      <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="organization" element={<OrganizationPage />} />

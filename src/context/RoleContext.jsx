@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { USER_ROLES } from '../config/navigation.js';
 
 const RoleContext = createContext();
@@ -14,11 +14,11 @@ export function RoleProvider({ children }) {
     localStorage.setItem('hcmlite_preview_role', currentRole);
   }, [currentRole]);
 
-  const setRole = (role) => {
+  const setRole = useCallback((role) => {
     if (USER_ROLES[role]) {
       setCurrentRole(role);
     }
-  };
+  }, []);
 
   const currentUser = USER_ROLES[currentRole] || USER_ROLES.ADMIN;
 

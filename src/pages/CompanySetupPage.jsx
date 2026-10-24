@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Layers, ArrowLeft, Shield } from 'lucide-react';
+import { ArrowLeft, Shield } from 'lucide-react';
+import BrandLogo from '../components/common/BrandLogo.jsx';
 import FormProgress from '../components/setup/FormProgress.jsx';
 import CompanyDetailsForm from '../components/setup/CompanyDetailsForm.jsx';
 import AdminAccountForm from '../components/setup/AdminAccountForm.jsx';
@@ -65,9 +66,7 @@ export default function CompanySetupPage() {
       <header className="bg-white border-b border-slate-200 py-4 px-4 sm:px-8">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2.5 focus:outline-none">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-xs">
-              <Layers className="w-5 h-5 text-white" />
-            </div>
+            <BrandLogo size="small" />
             <div>
               <span className="font-bold text-base tracking-tight text-slate-900 block leading-tight">
                 HCM Lite
