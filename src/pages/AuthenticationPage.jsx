@@ -205,7 +205,7 @@ export default function AuthenticationPage() {
           </Link>
 
           <div className="mt-7">
-            <BrandLogo size="small" className="mb-4 rounded-md bg-white" />
+            <BrandLogo size="form" className="mb-4 rounded-lg bg-white p-0.5" />
             <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
               {roleLabels[expectedRole]} account
             </span>

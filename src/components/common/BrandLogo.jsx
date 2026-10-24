@@ -5,6 +5,7 @@ const sizes = {
   tiny: 'h-4 w-4',
   small: 'h-8 w-8',
   medium: 'h-11 w-11',
+  form: 'h-20 w-20',
   large: 'h-24 w-24',
 };
 
