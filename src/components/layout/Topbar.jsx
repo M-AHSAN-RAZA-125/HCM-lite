@@ -18,6 +18,8 @@ export default function Topbar({ setMobileOpen }) {
         return { section: 'Structure', title: 'Organization' };
       case '/employees':
         return { section: 'People', title: 'Employee Directory' };
+      case '/employee-approvals':
+        return { section: 'People', title: 'Employee Approval Requests' };
       case '/attendance':
         return { section: 'Time', title: 'Attendance' };
       case '/leaves':

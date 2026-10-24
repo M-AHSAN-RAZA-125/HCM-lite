@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useRole } from '../../context/RoleContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { ShieldAlert, Users, ChevronDown, ChevronUp, Eye, LogIn, Sparkles } from 'lucide-react';
 
 export default function DevRoleSelector() {
   const { currentRole, setRole, currentUser } = useRole();
+  const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const roles = [
@@ -52,25 +54,29 @@ export default function DevRoleSelector() {
             Active: <strong className="font-semibold text-amber-950">{currentUser.label}</strong>
           </span>
 
-          <div className="inline-flex rounded-lg bg-white/90 p-0.5 border border-amber-300/70 shadow-xs">
-            {roles.map((r) => {
-              const active = currentRole === r.id;
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => setRole(r.id)}
-                  title={r.desc}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
-                    active
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-amber-100/50'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              );
-            })}
-          </div>
+          {user ? (
+            <span className="text-[11px] font-semibold text-amber-900">Authenticated as {user.role}</span>
+          ) : (
+            <div className="inline-flex rounded-lg bg-white/90 p-0.5 border border-amber-300/70 shadow-xs">
+              {roles.map((r) => {
+                const active = currentRole === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setRole(r.id)}
+                    title={r.desc}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
+                      active
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}

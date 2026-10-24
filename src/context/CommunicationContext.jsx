@@ -1,6 +1,13 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRole } from './RoleContext.jsx';
+import { useAuth } from './AuthContext.jsx';
 import { USER_ROLES } from '../config/navigation.js';
+import {
+  dismissServerNotification,
+  getNotifications,
+  markAllServerNotificationsRead,
+  markServerNotificationRead,
+} from '../services/approvalApi.js';
 
 const CommunicationContext = createContext(null);
 const ANNOUNCEMENTS_KEY = 'hcmlite_session_announcements_v1';
@@ -22,9 +29,46 @@ function createId(prefix) {
 
 export function CommunicationProvider({ children }) {
   const { currentRole, currentUser, isAdmin, isHr } = useRole();
+  const { user } = useAuth();
   const [announcements, setAnnouncements] = useState(() => readSessionValue(ANNOUNCEMENTS_KEY, []));
   const [auditEvents, setAuditEvents] = useState(() => readSessionValue(AUDIT_KEY, []));
   const [notificationsByRole, setNotificationsByRole] = useState(() => readSessionValue(NOTIFICATIONS_KEY, {}));
+  const [serverNotifications, setServerNotifications] = useState([]);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [notificationServiceError, setNotificationServiceError] = useState('');
+  const notificationRefreshId = useRef(0);
+
+  const refreshNotifications = useCallback(async () => {
+    const requestId = ++notificationRefreshId.current;
+    if (!user) {
+      setServerNotifications([]);
+      setPendingRequestCount(0);
+      setNotificationServiceError('');
+      return;
+    }
+    try {
+      const result = await getNotifications();
+      if (requestId !== notificationRefreshId.current) return;
+      setServerNotifications(result.notifications.map((item) => ({ ...item, persistent: true })));
+      setPendingRequestCount(result.pendingRequestCount);
+      setNotificationServiceError('');
+    } catch (error) {
+      if (requestId !== notificationRefreshId.current) return;
+      setNotificationServiceError(error.message);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) {
+      refreshNotifications();
+      return undefined;
+    }
+    refreshNotifications();
+    const timer = window.setInterval(refreshNotifications, 15000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [user?.id, refreshNotifications]);
 
   useEffect(() => {
     try { sessionStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(announcements)); } catch { /* Best-effort prototype persistence. */ }
@@ -136,25 +180,68 @@ export function CommunicationProvider({ children }) {
     return { success: true };
   };
 
-  const markNotificationRead = (id) => setNotificationsByRole((current) => ({
-    ...current,
-    [currentRole]: (current[currentRole] || []).map((item) => item.id === id ? { ...item, read: true } : item),
-  }));
+  const markNotificationRead = async (id) => {
+    const serverNotification = serverNotifications.find((item) => item.id === id);
+    if (serverNotification) {
+      try {
+        await markServerNotificationRead(id);
+        setServerNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
+        setNotificationServiceError('');
+      } catch (error) {
+        setNotificationServiceError(error.message);
+      }
+      return;
+    }
+    setNotificationsByRole((current) => ({
+      ...current,
+      [currentRole]: (current[currentRole] || []).map((item) => item.id === id ? { ...item, read: true } : item),
+    }));
+  };
 
-  const markAllNotificationsRead = () => setNotificationsByRole((current) => ({
-    ...current,
-    [currentRole]: (current[currentRole] || []).map((item) => ({ ...item, read: true })),
-  }));
+  const markAllNotificationsRead = async () => {
+    try {
+      if (serverNotifications.some((item) => !item.read)) await markAllServerNotificationsRead();
+      setServerNotifications((current) => current.map((item) => ({ ...item, read: true })));
+      setNotificationsByRole((current) => ({
+        ...current,
+        [currentRole]: (current[currentRole] || []).map((item) => ({ ...item, read: true })),
+      }));
+      setNotificationServiceError('');
+    } catch (error) {
+      setNotificationServiceError(error.message);
+    }
+  };
 
-  const dismissNotification = (id) => setNotificationsByRole((current) => ({
-    ...current,
-    [currentRole]: (current[currentRole] || []).filter((item) => item.id !== id),
-  }));
+  const dismissNotification = async (id) => {
+    const serverNotification = serverNotifications.find((item) => item.id === id);
+    if (serverNotification) {
+      try {
+        await dismissServerNotification(id);
+        setServerNotifications((current) => current.filter((item) => item.id !== id));
+        setNotificationServiceError('');
+      } catch (error) {
+        setNotificationServiceError(error.message);
+      }
+      return;
+    }
+    setNotificationsByRole((current) => ({
+      ...current,
+      [currentRole]: (current[currentRole] || []).filter((item) => item.id !== id),
+    }));
+  };
 
   const value = {
     announcements,
     auditEvents,
-    notifications: notificationsByRole[currentRole] || [],
+    notifications: [
+      ...serverNotifications,
+      ...(notificationsByRole[currentRole] || []).filter(
+        (item) => !serverNotifications.some((serverItem) => serverItem.id === item.id)
+      ),
+    ],
+    pendingRequestCount,
+    notificationServiceError,
+    refreshNotifications,
     recordAuditEvent,
     createNotification,
     saveAnnouncement,

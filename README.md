@@ -11,16 +11,24 @@ HCM Lite is an AI-assisted Human Capital Management prototype with a React front
 **Prerequisite:** Node.js
 
 1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env`, configure MongoDB and a random `SESSION_SECRET` of at least 32 characters.
+2. Copy `.env.example` to `.env`, configure MongoDB as a replica set (the sample URI uses local replica-set name `rs0`; initialize the local replica set if needed) and a random `SESSION_SECRET` of at least 32 characters.
 3. Start the API in one terminal with `npm run server:dev`.
 4. Start Vite in another terminal with `npm run dev`. Vite proxies `/api` to `http://localhost:3001`.
 5. Run `npm run build` and `npm run lint` to verify the frontend.
 
+## Production hosting and browser refreshes
+
+The repository has no Vercel, Netlify, or other static-host deployment configuration. The production Express server is the configured full-stack host: build with `npm run build`, then run `npm run server:start`. It serves files from `dist/` and returns the app's `index.html` only for browser navigations accepting `text/html`; unknown `/api` routes keep a JSON 404 and missing assets remain 404s. Keep the API route definitions before the frontend fallback. Configure the deployment to run this Express process and set `APP_ORIGIN` to the public application origin. In development, Vite provides the SPA fallback itself and proxies `/api` to Express.
+
+The actual browser routes are `/` (redirects to `/dashboard` after session verification), `/login`, `/auth/employee`, `/auth/hr`, `/auth/admin`, and the nested workspace paths declared in `src/routes/AppRoutes.jsx`. Signup is a tab within each `/auth/:role` route rather than a separate `/signup` path. Role dashboards share `/dashboard` and render according to the server-authenticated role; `/admin/dashboard`, `/hr/dashboard`, and `/employee/dashboard` are not defined routes. Unknown browser paths render the Not Found page.
+
 ## Authentication and roles
 
-The login path first asks the user to choose Employee, HR, or Admin. The selected role is only an expected account type: the server compares it with the role stored on the account before creating an HTTP-only, SameSite=Strict session. Passwords are hashed with bcrypt. Session records and application accounts are stored in MongoDB. Protected application routes require a session in production builds; the role-switching banner and dashboard preview remain enabled only in Vite development mode.
+The login path first asks the user to choose Employee, HR, or Admin. The selected role is only an expected account type: the server compares it with the role stored on the account before creating an HTTP-only, SameSite=Strict session. Passwords are hashed with bcrypt. Session records and application accounts are stored in MongoDB. All workspace routes require a server-validated session in every build; the development banner cannot change an authenticated user's role.
 
-Registration is invitation-only for every role. An Admin can create an invitation with `POST /api/v1/admin/invitations`; the returned one-time token must be delivered to the invited person through an approved channel. New accounts remain pending until an Admin activates them through `PATCH /api/v1/admin/users/:id/status`. An initial Admin can be provisioned once, with `INITIAL_ADMIN_SETUP_TOKEN`, through `POST /api/v1/auth/bootstrap-admin`. The initial account also requires successful biometric enrollment. Never expose that setup token in a browser bundle or public endpoint. Passwords require at least 12 characters and are limited to bcrypt's 72-byte input size.
+Registration is invitation-only for every role. An Admin can create an invitation with `POST /api/v1/admin/invitations`; the returned one-time token must be delivered to the invited person through an approved channel. Registration requires a JPG/PNG profile photo (maximum 2 MB), explicit biometric consent, and a separate successful live face enrollment. Photos are stored privately in MongoDB; captured face frames are sent transiently to the configured provider, and only the provider's enrollment reference is stored by this application. New employee accounts stay pending and cannot authenticate until an HR or Admin approves them. An initial Admin can be provisioned once, with `INITIAL_ADMIN_SETUP_TOKEN`, through `POST /api/v1/auth/bootstrap-admin`. Never expose that setup token in a browser bundle or public endpoint. Passwords require at least 12 characters and are limited to bcrypt's 72-byte input size.
+
+HR and Admin users can open **Employee Approvals** to inspect requests, review profile details, and approve or reject pending employee accounts. Review actions are organization-scoped, recorded in the audit collection, and atomically update the employee status and persistent MongoDB notifications. Registration and review use MongoDB transactions; configure a replica set (MongoDB Atlas provides one) for these multi-document workflows. Notifications are fetched with polling and remain available after refresh.
 
 If an active user withdraws consent and deletes their enrollment, they are signed out and cannot use normal sign-in. They can choose **Recovery**, re-authenticate with their password and selected role, grant fresh consent, and complete face enrollment. The recovery session is limited to enrollment and is upgraded only after provider success. New users who are still pending require an Admin's status approval before login.
 
@@ -42,9 +50,14 @@ All provider calls are server-to-server and send `FACE_VERIFICATION_API_KEY` as 
 - `GET /api/v1/auth/capabilities`, `GET /api/v1/auth/me`
 - `POST /api/v1/auth/login`, `POST /api/v1/auth/face-login`, `POST /api/v1/auth/register`, `POST /api/v1/auth/logout`
 - `POST /api/v1/auth/recovery-login`, `POST /api/v1/auth/re-enroll`
+- `POST /api/v1/auth/registration-face-enrollment` (short-lived, invitation-bound staged enrollment)
 - `POST /api/v1/auth/bootstrap-admin` (one-time secret-protected initial provisioning)
 - `POST /api/v1/auth/face-enrollment`, `DELETE /api/v1/auth/face-enrollment`
 - `POST /api/v1/admin/invitations`, `PATCH /api/v1/admin/users/:id/status`
+- `GET /api/v1/admin/employee-requests`, `GET /api/v1/admin/employee-requests/:id`
+- `POST /api/v1/admin/employee-requests/:id/approve`, `POST /api/v1/admin/employee-requests/:id/reject`
+- `GET /api/v1/notifications`, `PATCH /api/v1/notifications/:id/read`, `POST /api/v1/notifications/read-all`, `DELETE /api/v1/notifications/:id`
+- `GET /api/v1/users/:id/profile-photo` (owner or same-organization HR/Admin only)
 - `POST /api/v1/attendance/face` (authenticated, verified check-in/check-out, server timestamps, duplicate protection)
 
 Authentication and face endpoints are rate-limited. The face attendance route associates the attendance record with the server-authenticated account and requires provider verification before writing. Existing attendance UI also maintains its own demo session records; the rest of the HCM modules (employee, payroll, leave, organization, audit, announcements, and AI assistant) have not yet been migrated to database-backed API authorization.
@@ -68,6 +81,6 @@ The backend must authenticate the existing session, derive the user and role ser
 
 ## Announcements, Notifications, and Audit
 
-These modules currently operate on real frontend actions and session-scoped browser state only. Announcements, role-partitioned notification read state, and supported audit events use `sessionStorage`; clearing the browser session removes them. The demo role selector is not authentication, and role-partitioned notifications are not private per-user records. Department audience filtering and the audit route guard improve the prototype experience but are not security controls.
+Announcements and their related frontend-demo events continue to operate on session-scoped browser state. Employee registration and decision notifications are private, persistent MongoDB records, and the approval actions are server-authorized and audited. Other demo-module notifications remain browser-session data and are not private server records.
 
 For production, add authenticated server endpoints and database models for announcements, per-user notifications, payroll, employee/leave/organization data, and append-only audit events. The server must enforce audience/role access, assign actor identities and timestamps, validate every mutation, and protect audit records from editing or deletion. Existing browser-only modules are prototypes, not secure records.

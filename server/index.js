@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import session from 'express-session';
 import MongoStore from 'connect-mongo';
@@ -8,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import multer from 'multer';
+import { registerFrontendFallback } from './frontendFallback.js';
 import {
   Attendance,
   AuditEvent,
@@ -132,9 +134,6 @@ function tokensMatch(left, right) {
 }
 
 function accountStatusError(user) {
-  if (user.status === 'PENDING' || user.approvalStatus === 'PENDING') {
-    return { status: 403, message: 'Your account is awaiting HR/Admin approval.' };
-  }
   if (user.status === 'REJECTED' || user.approvalStatus === 'REJECTED') {
     return {
       status: 403,
@@ -144,10 +143,28 @@ function accountStatusError(user) {
   if (user.status === 'SUSPENDED' || user.status === 'INACTIVE') {
     return { status: 403, message: 'Your account is suspended or inactive. Please contact HR or Admin for assistance.' };
   }
+  if (
+    user.status === 'PENDING' ||
+    user.approvalStatus === 'PENDING' ||
+    (user.role === 'EMPLOYEE' && user.approvalStatus !== 'APPROVED')
+  ) {
+    return { status: 403, message: 'Your account is awaiting HR/Admin approval.' };
+  }
   if (user.status !== 'ACTIVE' || (user.role === 'EMPLOYEE' && user.approvalStatus !== 'APPROVED')) {
     return { status: 403, message: 'This account is not approved for sign in. Please contact your administrator.' };
   }
   return null;
+}
+
+function pendingEmployeeQuery(organizationId) {
+  return {
+    organizationId,
+    role: 'EMPLOYEE',
+    $or: [
+      { status: 'PENDING', approvalStatus: 'PENDING' },
+      { status: 'ACTIVE', approvalStatus: { $in: ['PENDING', null] } },
+    ],
+  };
 }
 
 function publicUser(user) {
@@ -256,6 +273,8 @@ app.post('/api/v1/auth/recovery-login', authLimiter, async (req, res, next) => {
     if (user.role !== expectedRole) {
       return res.status(403).json({ message: 'This account type does not match the selected role.' });
     }
+    const statusError = accountStatusError(user);
+    if (statusError) return res.status(statusError.status).json({ message: statusError.message });
     if (user.status !== 'ACTIVE' || user.faceEnrollment?.status === 'ENROLLED') {
       return res.status(403).json({ message: 'This account is not eligible for face-enrollment recovery.' });
     }
@@ -276,6 +295,8 @@ app.post('/api/v1/auth/re-enroll', requireAuth, async (req, res, next) => {
       return res.status(403).json({ message: 'Complete the authorized account recovery flow to enroll a face.' });
     }
     const user = await User.findById(req.session.userId);
+    const statusError = user ? accountStatusError(user) : null;
+    if (statusError) return res.status(statusError.status).json({ message: statusError.message });
     if (!user || user.status !== 'ACTIVE' || user.faceEnrollment?.status === 'ENROLLED') {
       return res.status(403).json({ message: 'This account is not eligible for face-enrollment recovery.' });
     }
@@ -302,7 +323,7 @@ app.post('/api/v1/auth/face-login', faceLimiter, async (req, res, next) => {
     const { imageDataUrl } = req.body || {};
     const providerEnrollmentId = await verifyFace(imageDataUrl);
     if (!providerEnrollmentId) {
-      return res.status(401).json({ message: 'Face verification failed. Please try again or sign in with email and password.' });
+      return res.status(401).json({ message: 'Face verification failed. Please try again or sign in using your email and password.' });
     }
     const user = await User.findOne({
       'faceEnrollment.providerEnrollmentId': providerEnrollmentId,
@@ -349,6 +370,14 @@ app.post('/api/v1/auth/registration-face-enrollment', faceLimiter, async (req, r
     });
     if (!invitation) {
       return res.status(403).json({ message: 'The invitation is invalid, expired, or does not match this account type.' });
+    }
+
+    const previousAttempts = await EnrollmentAttempt.find({ email, invitationId: invitation._id, usedAt: null })
+      .select('+providerEnrollmentId')
+      .limit(10);
+    for (const previousAttempt of previousAttempts) {
+      await deleteFaceEnrollment(previousAttempt.providerEnrollmentId);
+      await EnrollmentAttempt.deleteOne({ _id: previousAttempt._id, usedAt: null });
     }
 
     const enrollmentId = new mongoose.Types.ObjectId();
@@ -484,22 +513,25 @@ app.post('/api/v1/auth/register', authLimiter, profilePhotoUpload.single('profil
             organizationId: user.organizationId,
             role: { $in: ['HR', 'ADMIN'] },
             status: 'ACTIVE',
-            approvalStatus: 'APPROVED',
+            approvalStatus: { $in: ['APPROVED', null] },
           }).select('_id').session(session);
-          if (reviewers.length) {
-            await Notification.insertMany(
-              reviewers.map((reviewer) => ({
-                recipientId: reviewer._id,
-                organizationId: user.organizationId,
-                type: 'EMPLOYEE_REGISTRATION_REQUEST',
-                title: 'New Employee Registration Request',
-                message: `${user.fullName} (${user.email}) submitted a registration request. Status: Pending.`,
-                relatedUserId: user._id,
-                link: '/employee-approvals',
-              })),
-              { session }
-            );
+          if (!reviewers.length) {
+            const error = new Error('No active HR or Admin reviewers are available for this organization.');
+            error.status = 503;
+            throw error;
           }
+          await Notification.insertMany(
+            reviewers.map((reviewer) => ({
+              recipientId: reviewer._id,
+              organizationId: user.organizationId,
+              type: 'EMPLOYEE_REGISTRATION_REQUEST',
+              title: 'New Employee Registration Request',
+              message: `${user.fullName} (${user.email}) submitted a registration request. Status: Pending.`,
+              relatedUserId: user._id,
+              link: '/employee-approvals',
+            })),
+            { session }
+          );
         }
 
         await AuditEvent.create(
@@ -570,6 +602,7 @@ app.post('/api/v1/auth/bootstrap-admin', authLimiter, async (req, res, next) => 
       passwordHash: await bcrypt.hash(password, 12),
       role: 'ADMIN',
       status: 'ACTIVE',
+      approvalStatus: 'APPROVED',
       faceEnrollment: {
         status: 'ENROLLED',
         providerEnrollmentId,
@@ -637,6 +670,280 @@ app.delete('/api/v1/auth/face-enrollment', requireAuth, loadUser, async (req, re
   }
 });
 
+app.get('/api/v1/notifications', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    const notifications = await Notification.find({
+      recipientId: req.user._id,
+      dismissedAt: null,
+    })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+    const pendingRequestCount = ['HR', 'ADMIN'].includes(req.user.role)
+      ? await User.countDocuments({
+          ...pendingEmployeeQuery(req.user.organizationId),
+        })
+      : 0;
+    res.json({
+      notifications: notifications.map((item) => ({
+        id: item._id.toString(),
+        title: item.title,
+        message: item.message,
+        link: item.type === 'EMPLOYEE_REGISTRATION_REQUEST'
+          ? `/employee-approvals?request=${item.relatedUserId}`
+          : item.link,
+        createdAt: item.createdAt,
+        read: item.isRead,
+        type: item.type,
+        relatedRequestId: item.relatedUserId.toString(),
+      })),
+      pendingRequestCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/v1/notifications/:id/read', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid notification.' });
+    const result = await Notification.updateOne(
+      { _id: req.params.id, recipientId: req.user._id, dismissedAt: null },
+      { $set: { isRead: true } }
+    );
+    if (!result.matchedCount) return res.status(404).json({ message: 'Notification not found.' });
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/v1/notifications/:id', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid notification.' });
+    const result = await Notification.updateOne(
+      { _id: req.params.id, recipientId: req.user._id, dismissedAt: null },
+      { $set: { dismissedAt: new Date() } }
+    );
+    if (!result.matchedCount) return res.status(404).json({ message: 'Notification not found.' });
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/v1/notifications/read-all', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    await Notification.updateMany(
+      { recipientId: req.user._id, dismissedAt: null, isRead: false },
+      { $set: { isRead: true } }
+    );
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/v1/admin/employee-requests', requireAuth, loadUser, requireRole('ADMIN', 'HR'), async (req, res, next) => {
+  try {
+    const requestedStatus = cleanText(req.query.status, 20).toUpperCase() || 'PENDING';
+    const allowedStatuses = new Set(['PENDING', 'APPROVED', 'REJECTED']);
+    if (!allowedStatuses.has(requestedStatus)) {
+      return res.status(400).json({ message: 'Filter status must be pending, approved, or rejected.' });
+    }
+    const query = requestedStatus === 'PENDING'
+      ? pendingEmployeeQuery(req.user.organizationId)
+      : {
+          organizationId: req.user.organizationId,
+          role: 'EMPLOYEE',
+          approvalStatus: requestedStatus,
+        };
+    const employees = await User.find(query)
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .select('fullName email department designation createdAt status approvalStatus faceEnrollment.status');
+    res.json({
+      requests: employees.map((employee) => ({
+        id: employee._id.toString(),
+        fullName: employee.fullName,
+        email: employee.email,
+        department: employee.department,
+        designation: employee.designation,
+        registrationDate: employee.createdAt,
+        faceEnrollmentStatus: employee.faceEnrollment?.status || 'INCOMPLETE',
+        status: employee.approvalStatus || 'PENDING',
+        profilePhotoUrl: `/api/v1/users/${employee._id}/profile-photo`,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/v1/admin/employee-requests/:id', requireAuth, loadUser, requireRole('ADMIN', 'HR'), async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid request.' });
+    const employee = await User.findOne({
+      _id: req.params.id,
+      organizationId: req.user.organizationId,
+      role: 'EMPLOYEE',
+    }).select('fullName email department designation createdAt status approvalStatus approvedAt approvedBy approvedByRole rejectedAt rejectedByRole rejectionReason faceEnrollment.status profilePhotoId');
+    if (!employee) return res.status(404).json({ message: 'Employee request not found.' });
+    res.json({
+      request: {
+        id: employee._id.toString(),
+        fullName: employee.fullName,
+        email: employee.email,
+        department: employee.department,
+        designation: employee.designation,
+        registrationDate: employee.createdAt,
+        status: employee.approvalStatus || 'PENDING',
+        accountStatus: employee.status,
+        faceEnrollmentStatus: employee.faceEnrollment?.status || 'INCOMPLETE',
+        approvedAt: employee.approvedAt,
+        approvedByRole: employee.approvedByRole,
+        rejectedAt: employee.rejectedAt,
+        rejectedByRole: employee.rejectedByRole,
+        rejectionReason: employee.rejectionReason,
+        profilePhotoUrl: employee.profilePhotoId ? `/api/v1/users/${employee._id}/profile-photo` : null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+async function decideEmployeeRequest(req, res, next, decision) {
+  let transaction;
+  let updatedEmployee;
+  try {
+    transaction = await mongoose.startSession();
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid request.' });
+    }
+    await transaction.withTransaction(async () => {
+      const now = new Date();
+      const approved = decision.status === 'APPROVED';
+      updatedEmployee = await User.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          organizationId: req.user.organizationId,
+          role: 'EMPLOYEE',
+          $or: [
+            { status: 'PENDING', approvalStatus: 'PENDING' },
+            { status: 'ACTIVE', approvalStatus: { $in: ['PENDING', null] } },
+          ],
+        },
+        {
+          $set: approved
+            ? {
+                status: 'ACTIVE',
+                approvalStatus: 'APPROVED',
+                approvedBy: req.user._id,
+                approvedByRole: req.user.role,
+                approvedAt: now,
+                rejectionReason: '',
+              }
+            : {
+                status: 'REJECTED',
+                approvalStatus: 'REJECTED',
+                rejectedBy: req.user._id,
+                rejectedByRole: req.user.role,
+                rejectedAt: now,
+                rejectionReason: decision.reason,
+              },
+        },
+        { new: true, runValidators: true, session: transaction }
+      );
+      if (!updatedEmployee) {
+        const error = new Error('This request is no longer pending or could not be found.');
+        error.status = 409;
+        throw error;
+      }
+
+      await Notification.updateMany(
+        {
+          relatedUserId: updatedEmployee._id,
+          type: 'EMPLOYEE_REGISTRATION_REQUEST',
+          organizationId: updatedEmployee.organizationId,
+          dismissedAt: null,
+        },
+        { $set: { isRead: true, dismissedAt: now } },
+        { session: transaction }
+      );
+      await Notification.create(
+        [{
+          recipientId: updatedEmployee._id,
+          organizationId: updatedEmployee.organizationId,
+          type: 'EMPLOYEE_REGISTRATION_DECISION',
+          title: approved ? 'Employee Account Approved' : 'Employee Registration Not Approved',
+          message: approved
+            ? 'Your registration has been approved. You can now sign in to HCM Lite.'
+            : `Your registration request was not approved. Please contact HR or Admin for assistance.${decision.reason ? ` Reason: ${decision.reason}` : ''}`,
+          relatedUserId: updatedEmployee._id,
+          link: '/dashboard',
+        }],
+        { session: transaction }
+      );
+      await AuditEvent.create(
+        [{
+          actorId: req.user._id,
+          actorRole: req.user.role,
+          action: approved ? 'employee.registration_approved' : 'employee.registration_rejected',
+          targetUserId: updatedEmployee._id,
+          organizationId: updatedEmployee.organizationId,
+          occurredAt: now,
+          details: { previousStatus: 'PENDING', nextStatus: decision.status },
+        }],
+        { session: transaction }
+      );
+    });
+    return res.json({
+      request: {
+        id: updatedEmployee._id.toString(),
+        status: updatedEmployee.approvalStatus,
+        accountStatus: updatedEmployee.status,
+        reviewedAt: approvedDate(updatedEmployee, decision.status),
+      },
+    });
+  } catch (error) {
+    next(error);
+  } finally {
+    await transaction?.endSession();
+  }
+}
+
+function approvedDate(employee, status) {
+  return status === 'APPROVED' ? employee.approvedAt : employee.rejectedAt;
+}
+
+app.post('/api/v1/admin/employee-requests/:id/approve', requireAuth, loadUser, requireRole('ADMIN', 'HR'), (req, res, next) =>
+  decideEmployeeRequest(req, res, next, { status: 'APPROVED' })
+);
+
+app.post('/api/v1/admin/employee-requests/:id/reject', requireAuth, loadUser, requireRole('ADMIN', 'HR'), (req, res, next) => {
+  const reason = cleanText(req.body?.reason, 500);
+  return decideEmployeeRequest(req, res, next, { status: 'REJECTED', reason });
+});
+
+app.get('/api/v1/users/:id/profile-photo', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).end();
+    const target = await User.findById(req.params.id).select('organizationId profilePhotoId');
+    if (!target?.profilePhotoId) return res.status(404).end();
+    const canView =
+      target._id.equals(req.user._id) ||
+      (['HR', 'ADMIN'].includes(req.user.role) && target.organizationId === req.user.organizationId);
+    if (!canView) return res.status(403).json({ message: 'You are not authorized to view this photo.' });
+    const photo = await ProfilePhoto.findOne({ _id: target.profilePhotoId, userId: target._id }).select('+data');
+    if (!photo) return res.status(404).end();
+    res.set({ 'Content-Type': photo.contentType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.send(photo.data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/v1/admin/invitations', requireAuth, loadUser, requireRole('ADMIN'), async (req, res, next) => {
   try {
     const email = cleanText(req.body?.email, 254).toLowerCase();
@@ -652,6 +959,7 @@ app.post('/api/v1/admin/invitations', requireAuth, loadUser, requireRole('ADMIN'
       role,
       tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
       invitedBy: req.user._id,
+      organizationId: req.user.organizationId,
       expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
     });
     res.status(201).json({ invitationToken: token, expiresInHours: 48 });
@@ -662,12 +970,30 @@ app.post('/api/v1/admin/invitations', requireAuth, loadUser, requireRole('ADMIN'
 
 app.patch('/api/v1/admin/users/:id/status', requireAuth, loadUser, requireRole('ADMIN'), async (req, res, next) => {
   try {
-    if (!['ACTIVE', 'INACTIVE'].includes(req.body?.status)) {
-      return res.status(400).json({ message: 'Account status must be ACTIVE or INACTIVE.' });
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid account.' });
+    if (!['ACTIVE', 'INACTIVE', 'SUSPENDED'].includes(req.body?.status)) {
+      return res.status(400).json({ message: 'Account status must be ACTIVE, INACTIVE, or SUSPENDED.' });
     }
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { $set: { status: req.body.status } },
+    const target = await User.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
+    if (!target) return res.status(404).json({ message: 'Account not found.' });
+    if (target.role === 'EMPLOYEE' && target.approvalStatus !== 'APPROVED') {
+      return res.status(409).json({ message: 'Employee account changes require an approved request. Use the employee request workflow.' });
+    }
+    if (req.body.status === 'ACTIVE' && target.approvalStatus === 'REJECTED') {
+      return res.status(409).json({ message: 'Rejected accounts cannot be reactivated. Create a new authorized registration.' });
+    }
+    const update = { status: req.body.status };
+    if (req.body.status === 'ACTIVE' && target.role !== 'EMPLOYEE') {
+      Object.assign(update, {
+        approvalStatus: 'APPROVED',
+        approvedBy: req.user._id,
+        approvedByRole: req.user.role,
+        approvedAt: new Date(),
+      });
+    }
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, organizationId: req.user.organizationId },
+      { $set: update },
       { new: true, runValidators: true }
     );
     if (!user) return res.status(404).json({ message: 'Account not found.' });
@@ -721,9 +1047,20 @@ app.post('/api/v1/attendance/face', requireAuth, loadUser, faceLimiter, async (r
   }
 });
 
+const frontendDistPath = fileURLToPath(new URL('../dist', import.meta.url));
+registerFrontendFallback(app, frontendDistPath);
+
 app.use((error, _req, res, _next) => {
   if (error?.type === 'entity.too.large') {
     return res.status(413).json({ message: 'The face image is too large. Please try again.' });
+  }
+  if (error instanceof multer.MulterError) {
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    return res.status(status).json({
+      message: error.code === 'LIMIT_FILE_SIZE'
+        ? 'Profile photo must be no larger than 2 MB.'
+        : 'Upload one valid JPG, JPEG, or PNG profile photo.',
+    });
   }
   const status = Number.isInteger(error?.status) ? error.status : 500;
   if (status >= 500) console.error('API request failed:', error?.name || 'UnknownError');
@@ -732,7 +1069,30 @@ app.use((error, _req, res, _next) => {
   });
 });
 
+async function cleanupExpiredEnrollmentAttempts() {
+  const expiredAttempts = await EnrollmentAttempt.find({ expiresAt: { $lte: new Date() } })
+    .select('+providerEnrollmentId')
+    .limit(100);
+  for (const attempt of expiredAttempts) {
+    try {
+      await deleteFaceEnrollment(attempt.providerEnrollmentId);
+      await EnrollmentAttempt.deleteOne({ _id: attempt._id, expiresAt: { $lte: new Date() } });
+    } catch (error) {
+      console.error('Expired face enrollment cleanup failed:', error?.name || 'UnknownError');
+    }
+  }
+}
+
 await mongoose.connect(process.env.MONGODB_URI);
+cleanupExpiredEnrollmentAttempts().catch((error) => {
+  console.error('Expired face enrollment cleanup could not start:', error?.name || 'UnknownError');
+});
+const enrollmentCleanupTimer = setInterval(() => {
+  cleanupExpiredEnrollmentAttempts().catch((error) => {
+    console.error('Expired face enrollment cleanup could not start:', error?.name || 'UnknownError');
+  });
+}, 15 * 60 * 1000);
+enrollmentCleanupTimer.unref();
 app.listen(port, () => {
   console.info(`HCM Lite API listening on port ${port}`);
 });

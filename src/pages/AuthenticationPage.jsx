@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   LoaderCircle,
   ShieldCheck,
+  Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -14,6 +16,8 @@ import BrandLogo from '../components/common/BrandLogo.jsx';
 import { requestCameraAccess, captureFrameFromVideo } from '../services/faceVerification.js';
 import {
   completeFaceRecovery,
+  getAuthCapabilities,
+  prepareRegistrationFaceEnrollment,
   registerAccount,
   signInWithFace,
   signInWithPassword,
@@ -40,6 +44,12 @@ export default function AuthenticationPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [invitationToken, setInvitationToken] = useState('');
+  const [department, setDepartment] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState('');
+  const [enrollmentFlowToken, setEnrollmentFlowToken] = useState('');
+  const [faceEnrollmentComplete, setFaceEnrollmentComplete] = useState(false);
   const [consentGranted, setConsentGranted] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -50,10 +60,25 @@ export default function AuthenticationPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (!profilePhoto) {
+      setProfilePhotoPreview('');
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(profilePhoto);
+    setProfilePhotoPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [profilePhoto]);
+
+  useEffect(() => {
     if (!cameraOpen || !cameraStream || !videoRef.current) return undefined;
     const video = videoRef.current;
     video.srcObject = cameraStream;
-    video.play().catch(() => setCameraError('Camera preview could not start. Check browser camera permissions and try again.'));
+    video.play().catch(() => {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+      setCameraOpen(false);
+      setCameraError('Camera preview could not start. Check browser camera permissions and try again.');
+    });
     return () => {
       video.srcObject = null;
       cameraStream.getTracks().forEach((track) => track.stop());
@@ -77,11 +102,11 @@ export default function AuthenticationPage() {
       setCameraStream(stream);
       setCameraOpen(true);
     } catch (cameraAccessError) {
-      setCameraError(
-        cameraAccessError instanceof Error
-          ? cameraAccessError.message
-          : 'Camera access was denied. Allow camera access or use email and password.'
-      );
+      const message = cameraAccessError instanceof Error
+        ? cameraAccessError.message
+        : 'Camera access was denied. Allow camera access or use email and password.';
+      if (purpose === 'login') setError('Face verification failed. Please try again or sign in using your email and password.');
+      else setCameraError(message);
     }
   };
 
@@ -113,6 +138,10 @@ export default function AuthenticationPage() {
     event.preventDefault();
     setError('');
     setSuccessMessage('');
+    if (!fullName.trim() || !email.trim()) {
+      setError('Enter your full name and email address to continue.');
+      return;
+    }
     if (password.length < 12) {
       setError('Use a password with at least 12 characters.');
       return;
@@ -129,32 +158,132 @@ export default function AuthenticationPage() {
       setError('Review and accept the biometric data notice before continuing.');
       return;
     }
-    await openCamera('signup');
+    if (!profilePhoto) {
+      setError('Upload a valid profile photo before submitting your registration.');
+      return;
+    }
+    if (!faceEnrollmentComplete || !enrollmentFlowToken) {
+      setError('Complete face enrollment using the Start Face Enrollment button before submitting.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await registerAccount({
+        fullName,
+        email,
+        password,
+        confirmPassword,
+        invitationToken,
+        expectedRole,
+        department,
+        designation,
+        profilePhoto,
+        enrollmentFlowToken,
+        consentGranted,
+      });
+      setSuccessMessage(result.message);
+      setTab('signin');
+      setPassword('');
+      setConfirmPassword('');
+      setProfilePhoto(null);
+      setEnrollmentFlowToken('');
+      setFaceEnrollmentComplete(false);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onStartFaceEnrollment = async () => {
+    setError('');
+    setSuccessMessage('');
+    setCameraError('');
+    if (!email.trim() || !invitationToken.trim()) {
+      setError('Enter your email address and administrator invitation before face enrollment.');
+      return;
+    }
+    if (!profilePhoto) {
+      setError('Upload a valid profile photo before starting face enrollment.');
+      return;
+    }
+    if (!consentGranted) {
+      setError('Accept the biometric consent notice before starting face enrollment.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const capabilities = await getAuthCapabilities();
+      if (!capabilities.faceConfigured) {
+        throw new Error('Face verification provider is not configured. Please contact your administrator.');
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    setFaceEnrollmentComplete(false);
+    setEnrollmentFlowToken('');
+    await openCamera('signup-enrollment');
+  };
+
+  const onStartFaceSignIn = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      const capabilities = await getAuthCapabilities();
+      if (!capabilities.faceConfigured) {
+        throw new Error('Face verification provider is not configured. Please contact your administrator.');
+      }
+      await openCamera('login');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onProfilePhotoChange = (event) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = '';
+    setFaceEnrollmentComplete(false);
+    setEnrollmentFlowToken('');
+    if (!selectedFile) return;
+    if (!['image/jpeg', 'image/png'].includes(selectedFile.type)) {
+      setProfilePhoto(null);
+      setError('Profile photo must be a JPG, JPEG, or PNG image.');
+      return;
+    }
+    if (selectedFile.size === 0 || selectedFile.size > 2 * 1024 * 1024) {
+      setProfilePhoto(null);
+      setError('Profile photo must be a valid image no larger than 2 MB.');
+      return;
+    }
+    setError('');
+    setProfilePhoto(selectedFile);
   };
 
   const onCapture = async () => {
     if (!videoRef.current || !cameraPurpose) return;
+    const purpose = cameraPurpose;
     setBusy(true);
     setError('');
     setCameraError('');
     try {
       const imageDataUrl = captureFrameFromVideo(videoRef.current);
-      if (cameraPurpose === 'signup') {
-        const result = await registerAccount({
-          fullName,
+      if (purpose === 'signup-enrollment') {
+        const result = await prepareRegistrationFaceEnrollment({
           email,
-          password,
           invitationToken,
           expectedRole,
           imageDataUrl,
           consentGranted,
         });
+        setEnrollmentFlowToken(result.flowToken);
+        setFaceEnrollmentComplete(true);
         closeCamera();
-        setSuccessMessage(result.message);
-        setTab('signin');
-        setPassword('');
-        setConfirmPassword('');
-      } else if (cameraPurpose === 'recovery') {
+      } else if (purpose === 'recovery') {
         await startAccountRecovery({ email, password, expectedRole });
         const result = await completeFaceRecovery({ imageDataUrl, consentGranted });
         acceptSession(result.user);
@@ -167,7 +296,20 @@ export default function AuthenticationPage() {
         navigate('/dashboard', { replace: true });
       }
     } catch (requestError) {
-      setCameraError(requestError.message || 'Verification failed. Try again or use email and password.');
+      if (purpose === 'signup-enrollment') {
+        setFaceEnrollmentComplete(false);
+        setEnrollmentFlowToken('');
+        const message = requestError.message || 'Face enrollment failed. Please try again.';
+        closeCamera();
+        setCameraError(message);
+      } else if (purpose === 'login') {
+        closeCamera();
+        setCameraError(requestError.message || 'Face verification failed. Please try again or sign in using your email and password.');
+      } else {
+        const message = requestError.message || 'Verification failed. Please try again.';
+        closeCamera();
+        setCameraError(message);
+      }
     } finally {
       setBusy(false);
     }
@@ -302,7 +444,7 @@ export default function AuthenticationPage() {
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => openCamera('login')}
+                onClick={onStartFaceSignIn}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-800 transition hover:bg-violet-100 disabled:opacity-60"
               >
                 <Camera className="h-4 w-4" aria-hidden="true" />
@@ -336,7 +478,11 @@ export default function AuthenticationPage() {
                   required
                   maxLength={254}
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setEnrollmentFlowToken('');
+                    setFaceEnrollmentComplete(false);
+                  }}
                   className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                 />
               </label>
@@ -348,11 +494,86 @@ export default function AuthenticationPage() {
                   required
                   autoComplete="off"
                   value={invitationToken}
-                  onChange={(event) => setInvitationToken(event.target.value)}
+                  onChange={(event) => {
+                    setInvitationToken(event.target.value);
+                    setEnrollmentFlowToken('');
+                    setFaceEnrollmentComplete(false);
+                  }}
                   className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                   placeholder="Provided by your organization"
                 />
               </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-slate-700" htmlFor="department">
+                  Department <span className="font-normal text-slate-400">(optional)</span>
+                  <input
+                    id="department"
+                    type="text"
+                    maxLength={120}
+                    value={department}
+                    onChange={(event) => setDepartment(event.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </label>
+                <label className="block text-sm font-medium text-slate-700" htmlFor="designation">
+                  Designation <span className="font-normal text-slate-400">(optional)</span>
+                  <input
+                    id="designation"
+                    type="text"
+                    maxLength={120}
+                    value={designation}
+                    onChange={(event) => setDesignation(event.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </label>
+              </div>
+              <section className="rounded-2xl border border-slate-200 p-4" aria-labelledby="photo-title">
+                <div>
+                  <h3 id="photo-title" className="text-sm font-semibold text-slate-900">Profile Photo</h3>
+                  <p className="mt-1 text-xs text-slate-500">Choose a JPG or PNG image up to 2 MB. This is separate from face enrollment.</p>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-4">
+                  {profilePhotoPreview && (
+                    <img src={profilePhotoPreview} alt="Profile photo preview" className="h-20 w-20 rounded-xl border border-slate-200 object-cover" />
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      <Upload className="h-4 w-4" aria-hidden="true" />
+                      {profilePhoto ? 'Replace photo' : 'Upload Profile Photo'}
+                      <input className="sr-only" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={onProfilePhotoChange} />
+                    </label>
+                    {profilePhoto && (
+                      <button type="button" onClick={() => {
+                        setProfilePhoto(null);
+                        setEnrollmentFlowToken('');
+                        setFaceEnrollmentComplete(false);
+                      }} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                        <Trash2 className="h-4 w-4" aria-hidden="true" /> Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {profilePhoto && <p className="mt-2 truncate text-xs text-emerald-700" role="status">{profilePhoto.name} selected</p>}
+              </section>
+              <section className="rounded-2xl border border-slate-200 p-4" aria-labelledby="enrollment-title">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 id="enrollment-title" className="text-sm font-semibold text-slate-900">Face Enrollment</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">The camera starts only after you choose the enrollment button. A configured face provider is required.</p>
+                  </div>
+                  {faceEnrollmentComplete && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="Face enrollment complete" />}
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onStartFaceEnrollment}
+                  className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition disabled:opacity-60 ${faceEnrollmentComplete ? 'border border-emerald-200 bg-emerald-50 text-emerald-800' : 'border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'}`}
+                >
+                  {faceEnrollmentComplete ? <CheckCircle2 className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                  {faceEnrollmentComplete ? 'Face Enrollment Complete — Retry' : 'Start Face Enrollment'}
+                </button>
+                {!faceEnrollmentComplete && <p className="mt-2 text-xs text-slate-500">Keep your face centered and well lit during enrollment.</p>}
+              </section>
               <label className="block text-sm font-medium text-slate-700" htmlFor="newPassword">
                 Password
                 <input
@@ -392,16 +613,22 @@ export default function AuthenticationPage() {
                   I consent to face data processing for sign-in and attendance. Images are sent to the configured verification provider for processing; the application stores only its enrollment reference and consent record. I can withdraw consent by contacting an authorized administrator; I understand that this disables sign-in until an authorized recovery is completed.
                 </span>
               </label>
+              {faceEnrollmentComplete && (
+                <p className="flex items-center gap-2 text-sm font-medium text-emerald-700" role="status">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Face enrollment completed securely.
+                </p>
+              )}
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || !profilePhoto || !faceEnrollmentComplete}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
               >
-                Continue to Face Registration
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
+                Submit Registration Request
               </button>
               <p className="text-xs leading-relaxed text-slate-500">
-                Registration is invitation-only for Employee, HR, and Admin accounts. New accounts remain pending until an Admin approves them. No account is created unless face enrollment succeeds.
+                Registration is invitation-only. Your account remains pending until an authorized HR or Admin approves the request.
               </p>
             </form>
           ) : (
@@ -480,7 +707,7 @@ export default function AuthenticationPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="camera-title" className="text-lg font-bold text-slate-900">
-                  {cameraPurpose === 'signup'
+                  {cameraPurpose === 'signup-enrollment'
                     ? 'Mandatory face registration'
                     : cameraPurpose === 'recovery'
                       ? 'Recover face access'
@@ -504,8 +731,8 @@ export default function AuthenticationPage() {
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                 {busy
                   ? 'Verifying securely…'
-                  : cameraPurpose === 'signup'
-                    ? 'Capture & Create Account'
+                  : cameraPurpose === 'signup-enrollment'
+                    ? 'Capture & Enroll Face'
                     : cameraPurpose === 'recovery'
                       ? 'Verify & Restore Access'
                       : 'Verify & Sign In'}

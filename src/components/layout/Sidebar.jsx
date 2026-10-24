@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { NAVIGATION_CONFIG } from '../../config/navigation.js';
 import { useRole } from '../../context/RoleContext.jsx';
+import { useCommunication } from '../../context/CommunicationContext.jsx';
 import BrandLogo from '../common/BrandLogo.jsx';
 import {
   ChevronLeft,
@@ -17,6 +18,7 @@ export default function Sidebar({
   setMobileOpen,
 }) {
   const { currentRole } = useRole();
+  const { pendingRequestCount } = useCommunication();
   const navSections = NAVIGATION_CONFIG[currentRole] || NAVIGATION_CONFIG.ADMIN;
 
   const sidebarContent = (
@@ -66,14 +68,15 @@ export default function Sidebar({
             <nav className="space-y-0.5" aria-label={section.title}>
               {section.items.map((item) => {
                 const Icon = item.icon;
+                const badgeCount = item.pendingBadge ? pendingRequestCount : 0;
                 return (
                   <NavLink
                     key={item.path}
                     to={item.path}
                     onClick={() => setMobileOpen(false)}
-                    title={isCollapsed ? item.label : undefined}
+                    title={isCollapsed ? `${item.label}${badgeCount ? `, ${badgeCount} pending` : ''}` : undefined}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-all group ${
+                      `relative flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-all group ${
                         isActive
                           ? 'bg-indigo-50 text-indigo-700 font-semibold shadow-xs'
                           : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -96,6 +99,11 @@ export default function Sidebar({
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">
                             <Sparkles className="w-2.5 h-2.5" />
                             AI
+                          </span>
+                        )}
+                        {badgeCount > 0 && (
+                          <span className={`${isCollapsed ? 'absolute right-0 top-0' : 'ml-auto'} inline-flex min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white`}>
+                            {badgeCount > 99 ? '99+' : badgeCount}
                           </span>
                         )}
                       </>

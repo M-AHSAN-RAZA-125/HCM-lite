@@ -29,7 +29,10 @@ test('fails closed when provider credentials are absent', async () => {
   delete process.env.FACE_VERIFICATION_PROVIDER_URL;
   delete process.env.FACE_VERIFICATION_API_KEY;
   assert.equal(isFaceProviderConfigured(), false);
-  await assert.rejects(enrollFace(imageDataUrl, 'subject-1'), { status: 503 });
+  await assert.rejects(enrollFace(imageDataUrl, 'subject-1'), {
+    status: 503,
+    message: 'Face verification provider is not configured. Please contact your administrator.',
+  });
   assert.equal(await verifyFace(imageDataUrl, 'enrollment-1').catch((error) => error.status), 503);
 });
 

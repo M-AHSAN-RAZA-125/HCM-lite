@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Building2,
   Users,
+  UserRoundCheck,
   Clock,
   CalendarCheck,
   WalletCards,
@@ -25,6 +26,7 @@ export const NAVIGATION_CONFIG = {
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { label: 'Organization', path: '/organization', icon: Building2 },
         { label: 'Employees', path: '/employees', icon: Users },
+        { label: 'Employee Approvals', path: '/employee-approvals', icon: UserRoundCheck, pendingBadge: true },
       ],
     },
     {
@@ -59,6 +61,7 @@ export const NAVIGATION_CONFIG = {
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { label: 'Organization', path: '/organization', icon: Building2 },
         { label: 'Employees', path: '/employees', icon: Users },
+        { label: 'Employee Approvals', path: '/employee-approvals', icon: UserRoundCheck, pendingBadge: true },
       ],
     },
     {

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useRole } from '../context/RoleContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import AppLayout from '../components/layout/AppLayout.jsx';
 import RoleSelectionPage from '../pages/RoleSelectionPage.jsx';
@@ -20,16 +19,38 @@ import AuditLogPage from '../pages/AuditLogPage.jsx';
 import SettingsPage from '../pages/SettingsPage.jsx';
 import ProfilePage from '../pages/ProfilePage.jsx';
 import NotFoundPage from '../pages/NotFoundPage.jsx';
+import EmployeeApprovalRequestsPage from '../pages/EmployeeApprovalRequestsPage.jsx';
 
 function AdminRoute({ children }) {
-  const { isAdmin } = useRole();
-  return isAdmin ? children : <Navigate to="/dashboard" replace />;
+  const { user } = useAuth();
+  return user?.role === 'ADMIN' ? children : <Navigate to="/dashboard" replace />;
+}
+
+function HrAdminRoute({ children }) {
+  const { user } = useAuth();
+  return ['ADMIN', 'HR'].includes(user?.role) ? children : <Navigate to="/dashboard" replace />;
 }
 
 function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (import.meta.env.DEV) return children;
+  const { user, loading, authError, refreshSession } = useAuth();
   if (loading) return <div className="p-8 text-center text-sm text-slate-500">Checking your session…</div>;
+  if (authError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <section className="max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Unable to verify your session</h1>
+          <p className="mt-2 text-sm text-slate-600">{authError}</p>
+          <button
+            type="button"
+            onClick={() => refreshSession()}
+            className="mt-5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
+            Try again
+          </button>
+        </section>
+      </main>
+    );
+  }
   return user ? children : <Navigate to="/login" replace />;
 }
 
@@ -48,6 +69,7 @@ export default function AppRoutes() {
         <Route path="organization" element={<OrganizationPage />} />
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="employees/:id" element={<EmployeeProfilePage />} />
+        <Route path="employee-approvals" element={<HrAdminRoute><EmployeeApprovalRequestsPage /></HrAdminRoute>} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/records" element={<AttendancePage />} />
         <Route path="attendance/my-attendance" element={<AttendancePage />} />
@@ -68,8 +90,8 @@ export default function AppRoutes() {
         <Route path="audit-log" element={<AdminRoute><AuditLogPage /></AdminRoute>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="profile" element={<ProfilePage />} />
-        <Route path="*" element={<NotFoundPage />} />
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

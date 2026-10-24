@@ -10,7 +10,9 @@ export class FaceProviderError extends Error {
 function getProviderConfig() {
   const baseUrl = process.env.FACE_VERIFICATION_PROVIDER_URL;
   const apiKey = process.env.FACE_VERIFICATION_API_KEY;
-  if (!baseUrl || !apiKey) throw new FaceProviderError();
+  if (!baseUrl || !apiKey) {
+    throw new FaceProviderError('Face verification provider is not configured. Please contact your administrator.');
+  }
 
   let parsedUrl;
   try {
