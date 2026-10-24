@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Home } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import BrandLogo from './BrandLogo.jsx';
 

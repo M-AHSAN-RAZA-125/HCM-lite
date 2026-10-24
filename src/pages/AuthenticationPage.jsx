@@ -204,11 +204,6 @@ export default function AuthenticationPage() {
             Change account type
           </Link>
 
-          <div className="mt-7 flex items-center gap-3 lg:hidden">
-            <BrandLogo size="small" className="rounded-md bg-white" />
-            <span className="font-bold text-slate-900">HCM Lite</span>
-          </div>
-
           <div className="mt-7">
             <BrandLogo size="small" className="mb-4 rounded-md bg-white" />
             <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">

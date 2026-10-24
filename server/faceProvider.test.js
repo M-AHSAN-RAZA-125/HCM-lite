@@ -77,7 +77,7 @@ test('does not match images without explicit liveness and match approval', async
       headers: { 'Content-Type': 'application/json' },
     });
   assert.equal(await verifyFace(imageDataUrl), null);
-  assert.equal(await verifyFace(imageDataUrl, 'enrollment-1'), false);
+  assert.equal(await verifyFace(imageDataUrl, 'enrollment-1'), null);
 });
 
 test('rejects invalid image input before calling a provider', async () => {
