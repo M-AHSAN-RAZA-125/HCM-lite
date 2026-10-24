@@ -1,0 +1,347 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  User,
+  Mail,
+  Shield,
+  Building,
+  Phone,
+  Calendar,
+  Key,
+  CheckCircle2,
+  Camera,
+  Lock,
+  ShieldAlert,
+} from 'lucide-react';
+import PageHeader from '../components/common/PageHeader.jsx';
+import { useRole } from '../context/RoleContext.jsx';
+import {
+  getFaceVerificationStatus,
+  requestCameraAccess,
+  captureFrameFromVideo,
+  enrollFace,
+} from '../services/faceVerification.js';
+
+export default function ProfilePage() {
+  const { currentUser, currentRole } = useRole();
+  const [consentGranted, setConsentGranted] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [faceStatusMessage, setFaceStatusMessage] = useState('');
+  const [cameraStream, setCameraStream] = useState(null);
+  const [faceEnrollment, setFaceEnrollment] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hcmlite_face_enrollment');
+      return saved ? JSON.parse(saved) : { enabled: false, provider: null, updatedAt: null };
+    } catch (error) {
+      return { enabled: false, provider: null, updatedAt: null };
+    }
+  });
+  const faceStatus = getFaceVerificationStatus();
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current && cameraStream) {
+      videoRef.current.srcObject = cameraStream;
+    }
+
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+  const activeUserId =
+    currentRole === 'HR' ? 'EMP-0012' : currentRole === 'ADMIN' ? 'EMP-0001' : 'EMP-0094';
+
+  const openFaceCamera = async () => {
+    if (!faceStatus.configured) {
+      setFaceStatusMessage('Face enrollment is disabled until a secure provider is configured.');
+      return;
+    }
+
+    if (!consentGranted) {
+      setFaceStatusMessage('Please review and accept the biometric consent before enabling camera access.');
+      return;
+    }
+
+    setCameraBusy(true);
+    try {
+      const stream = await requestCameraAccess();
+      setCameraStream(stream);
+      setCameraOpen(true);
+      setFaceStatusMessage('Camera ready. Position your face in the frame and capture the enrollment sample.');
+    } catch (error) {
+      setFaceStatusMessage(
+        error instanceof Error
+          ? error.message
+          : 'Camera access was denied. Please allow camera permission to continue face enrollment.'
+      );
+      setCameraOpen(false);
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const handleFaceEnrollment = async () => {
+    if (!faceStatus.configured) {
+      setFaceStatusMessage('Face enrollment cannot proceed because no secure verification provider is configured.');
+      return;
+    }
+
+    if (!consentGranted) {
+      setFaceStatusMessage('Informed consent is required before collecting or processing biometric data.');
+      return;
+    }
+
+    if (!videoRef.current) {
+      setFaceStatusMessage('Open the camera first before attempting to enroll a face.');
+      return;
+    }
+
+    setEnrolling(true);
+
+    try {
+      const imageDataUrl = captureFrameFromVideo(videoRef.current);
+      const result = await enrollFace({
+        userId: activeUserId,
+        userRole: currentRole,
+        imageDataUrl,
+        consentGranted,
+      });
+
+      if (!result.success) {
+        setFaceStatusMessage(result.error || 'Face enrollment could not be completed.');
+        return;
+      }
+
+      const nextState = {
+        enabled: true,
+        provider: faceStatus.provider,
+        updatedAt: new Date().toISOString(),
+      };
+
+      localStorage.setItem('hcmlite_face_enrollment', JSON.stringify(nextState));
+      setFaceEnrollment(nextState);
+      setFaceStatusMessage('Face enrollment was submitted successfully to the configured verification service.');
+      setCameraOpen(false);
+      setCameraStream(null);
+    } catch (error) {
+      setFaceStatusMessage(
+        error instanceof Error
+          ? error.message
+          : 'Face enrollment could not be completed. Please try again after confirming your identity.'
+      );
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  const removeFaceEnrollment = () => {
+    localStorage.removeItem('hcmlite_face_enrollment');
+    setFaceEnrollment({ enabled: false, provider: null, updatedAt: null });
+    setConsentGranted(false);
+    setFaceStatusMessage('Face enrollment has been removed from this profile after identity verification.');
+    setCameraOpen(false);
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="My Profile & Credentials"
+        subtitle="View and update your personal employee records, job title, and authentication settings."
+        breadcrumbs={[{ label: 'Profile' }]}
+      />
+
+      {/* Profile Header Card */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-sm">
+            {currentUser.initials}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900">{currentUser.name}</h2>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                {currentUser.badge}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">{currentUser.department}</p>
+            <div className="flex items-center gap-3 text-xs text-slate-400 mt-2">
+              <span className="flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5 text-slate-400" />
+                {currentUser.email}
+              </span>
+              <span>&middot;</span>
+              <span className="font-mono">ID: EMP-0094</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-right self-stretch sm:self-auto border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
+          <span className="text-[11px] text-slate-400 block">System Access Level</span>
+          <span className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
+            {currentRole} Role
+          </span>
+        </div>
+      </div>
+
+      {/* Details Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Employment Information */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+            <Building className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-slate-900">Employment Details</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Department</span>
+              <span className="font-medium text-slate-800">{currentUser.department}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Employment Type</span>
+              <span className="font-medium text-slate-800">Full-Time Regular</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Work Location</span>
+              <span className="font-medium text-slate-800">San Francisco HQ / Hybrid</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Reporting Manager</span>
+              <span className="font-medium text-slate-800">Sarah Jenkins (VP People)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Security & Authentication */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+            <Key className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-slate-900">Security & Credentials</h3>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Authentication Mode</span>
+              <span className="font-medium text-slate-800">Preview SSO / Local Token</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Multi-Factor Auth (MFA)</span>
+              <span className="font-medium text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Enforced
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Active Sessions</span>
+              <span className="font-mono text-slate-800">1 session (AI Studio Web)</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-50">
+              <span className="text-slate-500">Last Sign-in</span>
+              <span className="text-slate-800">Today at 10:45 AM</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 shadow-xs space-y-5">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-slate-900">Face Enrollment</h3>
+          </div>
+          <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+            {faceEnrollment.enabled ? 'Enrolled' : 'Not Enrolled'}
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Face verification is available only after you confirm your identity with the organization and an authorized backend provider is configured. This enrollment flow requests camera access only after you opt in and never stores raw camera recordings in browser storage.
+        </p>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+          <label className="flex items-start gap-3 text-xs text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consentGranted}
+              onChange={(e) => setConsentGranted(e.target.checked)}
+              className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>
+              I understand that my face may be processed by the configured identity verification service for authentication and attendance, and I consent to this processing for the account associated with this profile.
+            </span>
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={openFaceCamera}
+              disabled={cameraBusy || !faceStatus.configured}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 rounded-lg"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              {cameraBusy ? 'Opening Camera...' : 'Start Enrollment'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleFaceEnrollment}
+              disabled={enrolling || !faceStatus.configured || !cameraOpen}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 active:bg-violet-200 disabled:opacity-50 border border-violet-200 rounded-lg"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              {enrolling ? 'Submitting...' : 'Capture Face Template'}
+            </button>
+
+            {faceEnrollment.enabled && (
+              <button
+                type="button"
+                onClick={removeFaceEnrollment}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 rounded-lg"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                Remove Enrollment
+              </button>
+            )}
+          </div>
+        </div>
+
+        {cameraOpen && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-slate-700">Live Camera Preview</span>
+              <span className="text-[10px] font-medium text-slate-500">Position your face in the frame</span>
+            </div>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full max-h-72 rounded-xl border border-slate-200 bg-slate-900 object-cover"
+            />
+          </div>
+        )}
+
+        {faceStatusMessage && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-[11px] text-indigo-900 leading-relaxed">
+            <span className="font-semibold block">Status:</span>
+            <span>{faceStatusMessage}</span>
+          </div>
+        )}
+
+        {!faceStatus.configured && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+            <span>Biometric authentication is disabled because no secure face-verification provider is configured for this environment.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

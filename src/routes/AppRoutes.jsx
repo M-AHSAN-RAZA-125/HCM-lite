@@ -1,0 +1,65 @@
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useRole } from '../context/RoleContext.jsx';
+import AppLayout from '../components/layout/AppLayout.jsx';
+import LoginPage from '../pages/LoginPage.jsx';
+import CompanySetupPage from '../pages/CompanySetupPage.jsx';
+import DashboardPage from '../pages/DashboardPage.jsx';
+import OrganizationPage from '../pages/OrganizationPage.jsx';
+import EmployeesPage from '../pages/EmployeesPage.jsx';
+import EmployeeProfilePage from '../pages/EmployeeProfilePage.jsx';
+import AttendancePage from '../pages/AttendancePage.jsx';
+import LeavesPage from '../pages/LeavesPage.jsx';
+import PayrollPage from '../pages/PayrollPage.jsx';
+import AnalyticsPage from '../pages/AnalyticsPage.jsx';
+import AiAssistantPage from '../pages/AiAssistantPage.jsx';
+import AnnouncementsPage from '../pages/AnnouncementsPage.jsx';
+import AuditLogPage from '../pages/AuditLogPage.jsx';
+import SettingsPage from '../pages/SettingsPage.jsx';
+import ProfilePage from '../pages/ProfilePage.jsx';
+import NotFoundPage from '../pages/NotFoundPage.jsx';
+
+function AdminRoute({ children }) {
+  const { isAdmin } = useRole();
+  return isAdmin ? children : <Navigate to="/dashboard" replace />;
+}
+
+export default function AppRoutes() {
+  return (
+    <Routes>
+      {/* Unauthenticated / Setup Entry Routes */}
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={<CompanySetupPage />} />
+
+      {/* Authenticated Workspace Shell */}
+      <Route path="/" element={<AppLayout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="organization" element={<OrganizationPage />} />
+        <Route path="employees" element={<EmployeesPage />} />
+        <Route path="employees/:id" element={<EmployeeProfilePage />} />
+        <Route path="attendance" element={<AttendancePage />} />
+        <Route path="attendance/records" element={<AttendancePage />} />
+        <Route path="attendance/my-attendance" element={<AttendancePage />} />
+        <Route path="leaves" element={<LeavesPage />} />
+        <Route path="leaves/apply" element={<LeavesPage />} />
+        <Route path="leaves/my-requests" element={<LeavesPage />} />
+        <Route path="leaves/approvals" element={<LeavesPage />} />
+        <Route path="leaves/calendar" element={<LeavesPage />} />
+        <Route path="leaves/balances" element={<LeavesPage />} />
+        <Route path="payroll" element={<PayrollPage />} />
+        <Route path="payroll/salary-structures" element={<PayrollPage />} />
+        <Route path="payroll/process" element={<PayrollPage />} />
+        <Route path="payroll/history" element={<PayrollPage />} />
+        <Route path="payroll/payslips" element={<PayrollPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="ai-assistant" element={<AiAssistantPage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="audit-log" element={<AdminRoute><AuditLogPage /></AdminRoute>} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
+  );
+}
