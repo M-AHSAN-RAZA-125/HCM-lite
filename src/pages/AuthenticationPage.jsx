@@ -36,7 +36,7 @@ export default function AuthenticationPage() {
   const { role: routeRole } = useParams();
   const expectedRole = roleByRoute[routeRole?.toLowerCase()];
   const navigate = useNavigate();
-  const { acceptSession } = useAuth();
+  const { acceptSession, authNotice } = useAuth();
   const videoRef = useRef(null);
   const [tab, setTab] = useState('signin');
   const [fullName, setFullName] = useState('');
@@ -348,6 +348,11 @@ export default function AuthenticationPage() {
 
           <div className="mt-7">
             <BrandLogo size="form" className="mb-4 rounded-lg bg-white p-0.5" />
+            {authNotice && (
+              <p role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {authNotice}
+              </p>
+            )}
             <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
               {roleLabels[expectedRole]} account
             </span>

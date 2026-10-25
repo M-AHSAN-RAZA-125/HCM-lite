@@ -24,9 +24,13 @@ import {
 } from '../services/faceVerification.js';
 
 export default function ProfilePage() {
-  const { currentUser, currentRole } = useRole();
-  const { user, clearSession } = useAuth();
+  const { user, acceptSession, clearSession } = useAuth();
+  const currentRole = user?.role || 'EMPLOYEE';
   const navigate = useNavigate();
+  const [nameDraft, setNameDraft] = useState(user?.fullName || '');
+  const [savingName, setSavingName] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileMessage, setProfileMessage] = useState('');
   const [consentGranted, setConsentGranted] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -40,6 +44,41 @@ export default function ProfilePage() {
   });
   const faceStatus = getFaceVerificationStatus();
   const videoRef = useRef(null);
+  const displayName = user?.fullName?.trim() || 'Name not set';
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('') || '?';
+
+  useEffect(() => {
+    setNameDraft(user?.fullName || '');
+  }, [user?.fullName]);
+
+  const saveFullName = async (event) => {
+    event.preventDefault();
+    setProfileError('');
+    setProfileMessage('');
+    setSavingName(true);
+    try {
+      const response = await fetch('/api/v1/auth/profile', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: nameDraft }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Your profile could not be updated.');
+      if (!payload.user) throw new Error('The server did not return the updated profile.');
+      acceptSession(payload.user);
+      setProfileMessage('Your name was updated.');
+    } catch (error) {
+      setProfileError(error.message || 'Your profile could not be updated.');
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   useEffect(() => {
     setFaceEnrollment({
@@ -176,23 +215,21 @@ export default function ProfilePage() {
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-sm">
-            {currentUser.initials}
+            {initials}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900">{currentUser.name}</h2>
+              <h2 className="text-lg font-bold text-slate-900">{displayName}</h2>
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
-                {currentUser.badge}
+                {currentRole}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">{currentUser.department}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{user?.department || 'Department not provided'}</p>
             <div className="flex items-center gap-3 text-xs text-slate-400 mt-2">
               <span className="flex items-center gap-1">
                 <Mail className="w-3.5 h-3.5 text-slate-400" />
-                {currentUser.email}
+                {user?.email}
               </span>
-              <span>&middot;</span>
-              <span className="font-mono">ID: EMP-0094</span>
             </div>
           </div>
         </div>
@@ -204,6 +241,36 @@ export default function ProfilePage() {
           </span>
         </div>
       </div>
+
+      <form onSubmit={saveFullName} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs sm:p-6">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Profile Name</h3>
+          <p className="mt-1 text-xs text-slate-500">Update the name shown throughout your authenticated workspace.</p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <label className="flex-1 text-xs font-medium text-slate-700" htmlFor="profile-full-name">
+            Full name
+            <input
+              id="profile-full-name"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              maxLength={120}
+              required
+              autoComplete="name"
+              className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingName || nameDraft.trim() === (user?.fullName || '')}
+            className="self-end rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingName ? 'Saving…' : 'Save Name'}
+          </button>
+        </div>
+        {profileError && <p role="alert" className="text-xs text-rose-700">{profileError}</p>}
+        {profileMessage && <p role="status" className="text-xs text-emerald-700">{profileMessage}</p>}
+      </form>
 
       {/* Details Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -217,19 +284,19 @@ export default function ProfilePage() {
           <div className="space-y-3 text-xs">
             <div className="flex justify-between py-1 border-b border-slate-50">
               <span className="text-slate-500">Department</span>
-              <span className="font-medium text-slate-800">{currentUser.department}</span>
+              <span className="font-medium text-slate-800">{user?.department || 'Not provided'}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Employment Type</span>
-              <span className="font-medium text-slate-800">Full-Time Regular</span>
+              <span className="text-slate-500">Designation</span>
+              <span className="font-medium text-slate-800">{user?.designation || 'Not provided'}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Work Location</span>
-              <span className="font-medium text-slate-800">San Francisco HQ / Hybrid</span>
+              <span className="text-slate-500">Account status</span>
+              <span className="font-medium text-slate-800">{user?.status || 'Unknown'}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Reporting Manager</span>
-              <span className="font-medium text-slate-800">Sarah Jenkins (VP People)</span>
+              <span className="text-slate-500">Approval status</span>
+              <span className="font-medium text-slate-800">{user?.approvalStatus || 'Not applicable'}</span>
             </div>
           </div>
         </div>
@@ -244,21 +311,11 @@ export default function ProfilePage() {
           <div className="space-y-3 text-xs">
             <div className="flex justify-between py-1 border-b border-slate-50">
               <span className="text-slate-500">Authentication Mode</span>
-              <span className="font-medium text-slate-800">Preview SSO / Local Token</span>
+              <span className="font-medium text-slate-800">Secure application session</span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Multi-Factor Auth (MFA)</span>
-              <span className="font-medium text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Enforced
-              </span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Active Sessions</span>
-              <span className="font-mono text-slate-800">1 session (AI Studio Web)</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-slate-50">
-              <span className="text-slate-500">Last Sign-in</span>
-              <span className="text-slate-800">Today at 10:45 AM</span>
+              <span className="text-slate-500">Face enrollment</span>
+              <span className="font-medium text-slate-800">{user?.faceEnrolled ? 'Enrolled' : 'Not enrolled'}</span>
             </div>
           </div>
         </div>

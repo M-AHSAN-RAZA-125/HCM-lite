@@ -8,46 +8,88 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const sessionRequestId = useRef(0);
+  const sessionAbortController = useRef(null);
+  const wasAuthenticated = useRef(false);
 
   const acceptSession = useCallback((authenticatedUser) => {
     setUser(authenticatedUser);
+    wasAuthenticated.current = true;
     setRole(authenticatedUser.role);
     setAuthError('');
+    setAuthNotice('');
   }, [setRole]);
 
   const refreshSession = useCallback(async () => {
     const requestId = ++sessionRequestId.current;
+    sessionAbortController.current?.abort();
+    const controller = new AbortController();
+    sessionAbortController.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
     setLoading(true);
     setAuthError('');
     try {
-      const response = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      const response = await fetch('/api/v1/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (requestId !== sessionRequestId.current) return;
+      const payload = await response.json().catch(() => ({}));
       if (requestId !== sessionRequestId.current) return;
       if (response.status === 401) {
         setUser(null);
+        const expired = wasAuthenticated.current || payload.code === 'SESSION_EXPIRED';
+        wasAuthenticated.current = false;
+        setAuthNotice(
+          payload.code === 'SESSION_INVALID'
+            ? 'Your account is no longer authorized to access HCM Lite. Please contact your administrator.'
+            : expired
+              ? 'Your session has expired. Please sign in again.'
+              : ''
+        );
+        return;
+      }
+      if (response.status === 403) {
+        setUser(null);
+        wasAuthenticated.current = false;
+        setAuthNotice('Your account is not authorized to access this application.');
         return;
       }
       if (!response.ok) {
-        throw new Error('The authentication service could not verify your session. Please try again.');
+        console.error('Session verification endpoint returned an unexpected status.', {
+          status: response.status,
+        });
+        throw new Error("We couldn't verify your session right now. Please try again.");
       }
-      const payload = await response.json();
-      if (requestId !== sessionRequestId.current) return;
       if (!payload.user) {
-        throw new Error('The authentication service returned an invalid session response. Please try again.');
+        console.error('Session verification endpoint returned an invalid response shape.');
+        throw new Error("We couldn't verify your session right now. Please try again.");
       }
       acceptSession(payload.user);
     } catch (error) {
-      if (error?.name === 'AbortError') return;
       if (requestId !== sessionRequestId.current) return;
-      setAuthError(error instanceof Error ? error.message : 'The authentication service is unavailable. Please try again.');
+      console.error('Session verification request failed.', {
+        reason: error?.name === 'AbortError' ? 'timeout' : 'network_or_response_error',
+      });
+      setAuthError("We couldn't verify your session right now. Please try again.");
     } finally {
-      if (requestId === sessionRequestId.current) setLoading(false);
+      window.clearTimeout(timeout);
+      if (requestId === sessionRequestId.current) {
+        sessionAbortController.current = null;
+        setLoading(false);
+      }
     }
   }, [acceptSession]);
 
   useEffect(() => {
     refreshSession();
-    return () => { sessionRequestId.current += 1; };
+    return () => {
+      sessionRequestId.current += 1;
+      sessionAbortController.current?.abort();
+    };
   }, [refreshSession]);
 
   useEffect(() => {
@@ -56,7 +98,14 @@ export function AuthProvider({ children }) {
       try {
         const response = await fetch('/api/v1/auth/me', { credentials: 'include' });
         if (response.status === 401 || response.status === 403) {
+          const payload = await response.json().catch(() => ({}));
           setUser(null);
+          wasAuthenticated.current = false;
+          setAuthNotice(
+            payload.code === 'SESSION_INVALID' || response.status === 403
+              ? 'Your account is no longer authorized to access HCM Lite. Please contact your administrator.'
+              : 'Your session has expired. Please sign in again.'
+          );
           return;
         }
         if (!response.ok) {
@@ -77,10 +126,26 @@ export function AuthProvider({ children }) {
     return () => window.clearInterval(timer);
   }, [user?.id, acceptSession]);
 
-  const clearSession = useCallback(() => setUser(null), []);
+  const clearSession = useCallback(() => {
+    sessionRequestId.current += 1;
+    sessionAbortController.current?.abort();
+    sessionAbortController.current = null;
+    wasAuthenticated.current = false;
+    setUser(null);
+    setAuthError('');
+    setAuthNotice('');
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, authError, refreshSession, acceptSession, clearSession }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      authError,
+      authNotice,
+      refreshSession,
+      acceptSession,
+      clearSession,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, BriefcaseBusiness, Building2, ShieldCheck } from 'lucide-react';
 import BrandLogo from '../components/common/BrandLogo.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const roles = [
   {
@@ -26,6 +27,7 @@ const roles = [
 
 export default function RoleSelectionPage() {
   const navigate = useNavigate();
+  const { authNotice } = useAuth();
 
   return (
     <main className="min-h-screen bg-[#F8FAFC] px-4 py-12 flex items-center justify-center">
@@ -39,6 +41,12 @@ export default function RoleSelectionPage() {
             Choose your account type to continue.
           </p>
         </div>
+
+        {authNotice && (
+          <p role="status" className="mx-auto mt-6 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900">
+            {authNotice}
+          </p>
+        )}
 
         <div className="mt-10 grid gap-4 md:grid-cols-3">
           {roles.map(({ key, label, description, icon: Icon }) => (

@@ -33,19 +33,27 @@ function HrAdminRoute({ children }) {
 
 function ProtectedRoute({ children }) {
   const { user, loading, authError, refreshSession } = useAuth();
-  if (loading) return <div className="p-8 text-center text-sm text-slate-500">Checking your session…</div>;
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-sm text-slate-500" role="status" aria-live="polite">
+        Verifying your session...
+      </div>
+    );
+  }
   if (authError) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <section className="max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-slate-900">Unable to verify your session</h1>
+          <h1 className="text-lg font-semibold text-slate-900">Session verification unavailable</h1>
           <p className="mt-2 text-sm text-slate-600">{authError}</p>
           <button
             type="button"
             onClick={() => refreshSession()}
+            disabled={loading}
+            aria-busy={loading}
             className="mt-5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
           >
-            Try again
+            {loading ? 'Verifying…' : 'Try again'}
           </button>
         </section>
       </main>
@@ -66,9 +74,9 @@ export default function AppRoutes() {
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="organization" element={<OrganizationPage />} />
-        <Route path="employees" element={<EmployeesPage />} />
-        <Route path="employees/:id" element={<EmployeeProfilePage />} />
+        <Route path="organization" element={<HrAdminRoute><OrganizationPage /></HrAdminRoute>} />
+        <Route path="employees" element={<HrAdminRoute><EmployeesPage /></HrAdminRoute>} />
+        <Route path="employees/:id" element={<HrAdminRoute><EmployeeProfilePage /></HrAdminRoute>} />
         <Route path="employee-approvals" element={<HrAdminRoute><EmployeeApprovalRequestsPage /></HrAdminRoute>} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/records" element={<AttendancePage />} />
@@ -84,11 +92,11 @@ export default function AppRoutes() {
         <Route path="payroll/process" element={<PayrollPage />} />
         <Route path="payroll/history" element={<PayrollPage />} />
         <Route path="payroll/payslips" element={<PayrollPage />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="analytics" element={<HrAdminRoute><AnalyticsPage /></HrAdminRoute>} />
         <Route path="ai-assistant" element={<AiAssistantPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="audit-log" element={<AdminRoute><AuditLogPage /></AdminRoute>} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

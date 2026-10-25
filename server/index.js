@@ -10,6 +10,7 @@ import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import multer from 'multer';
 import { registerFrontendFallback } from './frontendFallback.js';
+import { buildDashboardData } from './dashboardData.js';
 import {
   Attendance,
   AuditEvent,
@@ -178,6 +179,7 @@ function publicUser(user) {
     department: user.department || '',
     designation: user.designation || '',
     faceEnrolled: user.faceEnrollment?.status === 'ENROLLED',
+    profilePhotoUploaded: Boolean(user.profilePhotoId),
   };
 }
 
@@ -186,12 +188,27 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function requireSessionVerification(req, res, next) {
+  if (req.session.userId) return next();
+  const hasSessionCookie = (req.get('cookie') || '')
+    .split(';')
+    .some((cookie) => cookie.trim().startsWith('hcm.sid='));
+  return res.status(401).json({
+    code: hasSessionCookie ? 'SESSION_EXPIRED' : 'SESSION_REQUIRED',
+    message: hasSessionCookie ? 'Your session has expired. Please sign in again.' : 'Please sign in to continue.',
+  });
+}
+
 async function loadUser(req, res, next) {
   try {
-    const user = await User.findById(req.session.userId).select('+faceEnrollment.providerEnrollmentId');
+    const user = await User.findById(req.session.userId)
+      .select('+faceEnrollment.providerEnrollmentId +profilePhotoId');
     if (!user || accountStatusError(user) || user.faceEnrollment?.status !== 'ENROLLED') {
       req.session.destroy(() => {});
-      return res.status(401).json({ message: 'This account is not eligible to sign in.' });
+      return res.status(401).json({
+        code: 'SESSION_INVALID',
+        message: 'This account is not eligible to sign in.',
+      });
     }
     req.user = user;
     next();
@@ -223,8 +240,100 @@ app.get('/api/v1/auth/capabilities', (_req, res) => {
   res.json({ faceConfigured: isFaceProviderConfigured() });
 });
 
-app.get('/api/v1/auth/me', requireAuth, loadUser, (req, res) => {
+app.get('/api/v1/auth/me', requireSessionVerification, loadUser, (req, res) => {
   res.json({ user: publicUser(req.user) });
+});
+
+app.patch('/api/v1/auth/profile', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    const keys = Object.keys(req.body || {});
+    if (keys.length !== 1 || keys[0] !== 'fullName') {
+      return res.status(400).json({ message: 'Only your full name can be updated here.' });
+    }
+    if (
+      typeof req.body.fullName !== 'string' ||
+      /[\u0000-\u001f\u007f]/.test(req.body.fullName)
+    ) {
+      return res.status(400).json({ message: 'Enter a valid full name.' });
+    }
+    const fullName = req.body.fullName.trim();
+    if (fullName.length < 2 || fullName.length > 120) {
+      return res.status(400).json({ message: 'Full name must be between 2 and 120 characters.' });
+    }
+    if (fullName === req.user.fullName) return res.json({ user: publicUser(req.user) });
+
+    const previousName = req.user.fullName;
+    req.user.fullName = fullName;
+    await req.user.save();
+    await AuditEvent.create({
+      actorId: req.user._id,
+      actorRole: req.user.role,
+      action: 'profile.full_name_updated',
+      targetUserId: req.user._id,
+      organizationId: req.user.organizationId,
+      details: { previousName, fullName },
+    });
+    res.json({ user: publicUser(req.user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/v1/dashboard', requireAuth, loadUser, async (req, res, next) => {
+  try {
+    const days = Number(req.query.days || 7);
+    if (![7, 30].includes(days)) {
+      return res.status(400).json({ message: 'Dashboard period must be 7 or 30 days.' });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const start = new Date(Date.parse(`${today}T00:00:00.000Z`) - (days - 1) * 24 * 60 * 60 * 1000);
+    const startDay = start.toISOString().slice(0, 10);
+    let employees = [];
+    let requestCounts = {};
+    let attendanceQuery;
+
+    if (req.user.role === 'EMPLOYEE') {
+      attendanceQuery = { userId: req.user._id };
+    } else {
+      const organizationFilter = { organizationId: req.user.organizationId, role: 'EMPLOYEE' };
+      const [activeEmployees, statuses] = await Promise.all([
+        User.find({ ...organizationFilter, status: 'ACTIVE', approvalStatus: 'APPROVED' })
+          .select('_id department')
+          .lean(),
+        User.aggregate([
+          { $match: organizationFilter },
+          { $group: { _id: '$approvalStatus', count: { $sum: 1 } } },
+        ]),
+      ]);
+      employees = activeEmployees;
+      requestCounts = Object.fromEntries(
+        statuses.map(({ _id, count }) => [String(_id || '').toLowerCase(), count])
+      );
+      attendanceQuery = { userId: { $in: activeEmployees.map((employee) => employee._id) } };
+    }
+
+    const attendance = await Attendance.find({
+      ...attendanceQuery,
+      dayKey: { $gte: startDay, $lte: today },
+    })
+      .select('dayKey checkInAt')
+      .sort({ checkInAt: -1 })
+      .lean();
+
+    res.json({
+      dashboard: buildDashboardData({
+        user: req.user,
+        employees,
+        attendance,
+        requestCounts,
+        today,
+        days,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/v1/auth/login', authLimiter, async (req, res, next) => {

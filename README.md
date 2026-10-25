@@ -13,12 +13,14 @@ HCM Lite is an AI-assisted Human Capital Management prototype with a React front
 1. Install dependencies with `npm install`.
 2. Copy `.env.example` to `.env`, configure MongoDB as a replica set (the sample URI uses local replica-set name `rs0`; initialize the local replica set if needed) and a random `SESSION_SECRET` of at least 32 characters.
 3. Start the API in one terminal with `npm run server:dev`.
-4. Start Vite in another terminal with `npm run dev`. Vite proxies `/api` to `http://localhost:3001`.
+4. Start Vite in another terminal with `npm run dev`. Vite proxies `/api` to `http://localhost:3001`. Start the API before using protected routes; the browser does not authenticate from a frontend-only preview.
 5. Run `npm run build` and `npm run lint` to verify the frontend.
 
 ## Production hosting and browser refreshes
 
 The repository has no Vercel, Netlify, or other static-host deployment configuration. The production Express server is the configured full-stack host: build with `npm run build`, then run `npm run server:start`. It serves files from `dist/` and returns the app's `index.html` only for browser navigations accepting `text/html`; unknown `/api` routes keep a JSON 404 and missing assets remain 404s. Keep the API route definitions before the frontend fallback. Configure the deployment to run this Express process and set `APP_ORIGIN` to the public application origin. In development, Vite provides the SPA fallback itself and proxies `/api` to Express.
+
+`npm run preview` also proxies `/api` to the local API on port 3001 for local production-build testing. If testing on port 4173, set `APP_ORIGIN=http://localhost:4173` for the API. Do not deploy Vite's static preview as the production host for authenticated use; deploy the Express server so the API and secure session cookie remain same-origin. `APP_ORIGIN` must exactly match the website's origin (scheme, hostname, and port where applicable), and the API must be running with `MONGODB_URI` and a 32-character-or-longer `SESSION_SECRET`.
 
 The actual browser routes are `/` (redirects to `/dashboard` after session verification), `/login`, `/auth/employee`, `/auth/hr`, `/auth/admin`, and the nested workspace paths declared in `src/routes/AppRoutes.jsx`. Signup is a tab within each `/auth/:role` route rather than a separate `/signup` path. Role dashboards share `/dashboard` and render according to the server-authenticated role; `/admin/dashboard`, `/hr/dashboard`, and `/employee/dashboard` are not defined routes. Unknown browser paths render the Not Found page.
 
@@ -47,7 +49,8 @@ All provider calls are server-to-server and send `FACE_VERIFICATION_API_KEY` as 
 
 ## API endpoints implemented
 
-- `GET /api/v1/auth/capabilities`, `GET /api/v1/auth/me`
+- `GET /api/v1/auth/capabilities`, `GET /api/v1/auth/me`, `PATCH /api/v1/auth/profile`
+- `GET /api/v1/dashboard` (role-scoped metrics from MongoDB accounts and attendance)
 - `POST /api/v1/auth/login`, `POST /api/v1/auth/face-login`, `POST /api/v1/auth/register`, `POST /api/v1/auth/logout`
 - `POST /api/v1/auth/recovery-login`, `POST /api/v1/auth/re-enroll`
 - `POST /api/v1/auth/registration-face-enrollment` (short-lived, invitation-bound staged enrollment)
