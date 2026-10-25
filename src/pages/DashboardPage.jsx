@@ -19,6 +19,7 @@ import {
 import { Link } from 'react-router-dom';
 import StatCard from '../components/common/StatCard.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { apiUrl } from '../services/apiUrl.js';
 
 function formatDay(day) {
   return new Date(`${day}T00:00:00`).toLocaleDateString(undefined, {
@@ -40,7 +41,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError('');
       try {
-        const response = await fetch(`/api/v1/dashboard?days=${days}`, {
+        const response = await fetch(apiUrl(`/api/v1/dashboard?days=${days}`), {
           credentials: 'include',
           signal: controller.signal,
         });

@@ -42,6 +42,31 @@ if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(express.json({ limit: '7mb', type: 'application/json' }));
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  const allowedOrigin = process.env.APP_ORIGIN;
+
+  if (origin && origin === allowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.vary('Origin');
+  }
+
+  if (req.method === 'OPTIONS') {
+    if (!origin || origin !== allowedOrigin) {
+      return res.status(403).json({ message: 'Request origin is not allowed.' });
+    }
+    return res.status(204).end();
+  }
+
+  if (['POST', 'PATCH', 'DELETE'].includes(req.method) && (!origin || origin !== allowedOrigin)) {
+    return res.status(403).json({ message: 'Request origin is not allowed.' });
+  }
+  next();
+});
 app.use(
   session({
     name: 'hcm.sid',
@@ -56,21 +81,12 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
       maxAge: 1000 * 60 * 60 * 8,
     },
   })
 );
 
-app.use((req, res, next) => {
-  if (!['POST', 'PATCH', 'DELETE'].includes(req.method)) return next();
-  const origin = req.get('origin');
-  const allowedOrigin = process.env.APP_ORIGIN;
-  if (!origin || origin !== allowedOrigin) {
-    return res.status(403).json({ message: 'Request origin is not allowed.' });
-  }
-  next();
-});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

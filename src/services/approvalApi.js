@@ -1,7 +1,9 @@
+import { apiUrl } from './apiUrl.js';
+
 async function approvalRequest(path, options = {}) {
   let response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiUrl(path), {
       credentials: 'include',
       ...options,
       headers: {

@@ -3,6 +3,7 @@ import { User, Settings, LogOut, ChevronDown, Shield, Building2 } from 'lucide-r
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { signOut } from '../../services/authApi.js';
+import { apiUrl } from '../../services/apiUrl.js';
 
 export default function ProfileMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -55,7 +56,8 @@ export default function ProfileMenu() {
       >
         {user?.profilePhotoUploaded && !photoUnavailable ? (
           <img
-            src={`/api/v1/users/${encodeURIComponent(user.id)}/profile-photo`}
+            src={apiUrl(`/api/v1/users/${encodeURIComponent(user.id)}/profile-photo`)}
+            crossOrigin="use-credentials"
             alt={`${name} profile`}
             onError={() => setPhotoUnavailable(true)}
             className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover"

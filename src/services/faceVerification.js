@@ -1,3 +1,5 @@
+import { apiUrl } from './apiUrl.js';
+
 const providerName =
   import.meta.env.VITE_FACE_VERIFICATION_PROVIDER ||
   import.meta.env.VITE_FACE_PROVIDER ||
@@ -54,7 +56,7 @@ export function captureFrameFromVideo(videoElement) {
 async function sendFaceRequest(path, body) {
   let response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiUrl(path), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

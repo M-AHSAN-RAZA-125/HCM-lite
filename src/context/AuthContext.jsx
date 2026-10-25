@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRole } from './RoleContext.jsx';
+import { apiUrl } from '../services/apiUrl.js';
 
 const AuthContext = createContext(null);
 
@@ -30,7 +31,7 @@ export function AuthProvider({ children }) {
     setLoading(true);
     setAuthError('');
     try {
-      const response = await fetch('/api/v1/auth/me', {
+      const response = await fetch(apiUrl('/api/v1/auth/me'), {
         credentials: 'include',
         cache: 'no-store',
         headers: { Accept: 'application/json' },
@@ -60,7 +61,9 @@ export function AuthProvider({ children }) {
       }
       if (!response.ok) {
         console.error('Session verification endpoint returned an unexpected status.', {
+          path: '/api/v1/auth/me',
           status: response.status,
+          contentType: response.headers.get('content-type'),
         });
         throw new Error("We couldn't verify your session right now. Please try again.");
       }
@@ -96,7 +99,7 @@ export function AuthProvider({ children }) {
     if (!user) return undefined;
     const refreshSession = async () => {
       try {
-        const response = await fetch('/api/v1/auth/me', { credentials: 'include' });
+        const response = await fetch(apiUrl('/api/v1/auth/me'), { credentials: 'include' });
         if (response.status === 401 || response.status === 403) {
           const payload = await response.json().catch(() => ({}));
           setUser(null);

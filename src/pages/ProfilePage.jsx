@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiUrl } from '../services/apiUrl.js';
 import {
   User,
   Mail,
@@ -62,7 +63,7 @@ export default function ProfilePage() {
     setProfileMessage('');
     setSavingName(true);
     try {
-      const response = await fetch('/api/v1/auth/profile', {
+      const response = await fetch(apiUrl('/api/v1/auth/profile'), {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -182,7 +183,7 @@ export default function ProfilePage() {
 
   const removeFaceEnrollment = async () => {
     try {
-      const response = await fetch('/api/v1/auth/face-enrollment', {
+      const response = await fetch(apiUrl('/api/v1/auth/face-enrollment'), {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

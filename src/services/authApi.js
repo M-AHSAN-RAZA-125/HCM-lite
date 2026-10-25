@@ -1,7 +1,9 @@
+import { apiUrl } from './apiUrl.js';
+
 async function request(path, body) {
   let response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiUrl(path), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -19,7 +21,7 @@ async function request(path, body) {
 export async function getAuthCapabilities() {
   let response;
   try {
-    response = await fetch('/api/v1/auth/capabilities', { credentials: 'include', headers: { Accept: 'application/json' } });
+    response = await fetch(apiUrl('/api/v1/auth/capabilities'), { credentials: 'include', headers: { Accept: 'application/json' } });
   } catch {
     throw new Error('Authentication service is unavailable. Please try again later.');
   }
@@ -81,7 +83,7 @@ export async function registerAccount({
   formData.append('enrollmentFlowToken', enrollmentFlowToken);
   formData.append('consentGranted', String(consentGranted));
   try {
-    response = await fetch('/api/v1/auth/register', {
+    response = await fetch(apiUrl('/api/v1/auth/register'), {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'application/json' },
@@ -96,7 +98,7 @@ export async function registerAccount({
 }
 
 export async function signOut() {
-  const response = await fetch('/api/v1/auth/logout', {
+  const response = await fetch(apiUrl('/api/v1/auth/logout'), {
     method: 'POST',
     credentials: 'include',
   });

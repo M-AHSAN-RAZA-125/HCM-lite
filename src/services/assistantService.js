@@ -1,3 +1,5 @@
+import { apiUrl } from './apiUrl.js';
+
 const ASSISTANT_ENDPOINT = '/api/v1/assistant/chat';
 
 export class AssistantServiceError extends Error {
@@ -23,9 +25,9 @@ export async function requestAssistantReply(message) {
 
   let response;
   try {
-    response = await fetch(ASSISTANT_ENDPOINT, {
+    response = await fetch(apiUrl(ASSISTANT_ENDPOINT), {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: cleanMessage }),
     });
