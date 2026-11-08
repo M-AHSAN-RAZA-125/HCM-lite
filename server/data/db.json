@@ -1,0 +1,64 @@
+{
+  "company": {
+    "name": "",
+    "email": "",
+    "phone": "",
+    "industry": "",
+    "website": "",
+    "address": "",
+    "city": "",
+    "country": "",
+    "isConfigured": false,
+    "rules": {
+      "startTime": "09:00",
+      "endTime": "18:00",
+      "gracePeriod": 15,
+      "halfDayHours": 5,
+      "weeklyOffDays": [
+        "Saturday",
+        "Sunday"
+      ],
+      "locationName": "Headquarters",
+      "officeLat": 24.8607,
+      "officeLng": 67.0011,
+      "radiusMeters": 150
+    }
+  },
+  "users": [],
+  "departments": [],
+  "designations": [],
+  "leaveTypes": [
+    {
+      "id": "annual",
+      "name": "Annual",
+      "quota": 14,
+      "isPaid": true
+    },
+    {
+      "id": "sick",
+      "name": "Sick",
+      "quota": 8,
+      "isPaid": true
+    },
+    {
+      "id": "casual",
+      "name": "Casual",
+      "quota": 10,
+      "isPaid": true
+    },
+    {
+      "id": "unpaid",
+      "name": "Unpaid",
+      "quota": 9999,
+      "isPaid": false
+    }
+  ],
+  "holidays": [],
+  "employees": [],
+  "attendance": [],
+  "leaves": [],
+  "payroll": [],
+  "announcements": [],
+  "notifications": [],
+  "auditLogs": []
+}
