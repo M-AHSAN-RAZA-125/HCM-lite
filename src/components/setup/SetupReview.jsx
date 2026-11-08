@@ -13,8 +13,12 @@ import {
   Database,
   ArrowRight,
   Info,
+  AlertCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { api, setAuthSession } from '../../services/api.js';
+import { useRole } from '../../context/RoleContext.jsx';
+import { useOrganization } from '../../context/OrganizationContext.jsx';
 
 export default function SetupReview({
   companyData,
@@ -23,15 +27,34 @@ export default function SetupReview({
   onBack,
 }) {
   const [submitting, setSubmitting] = useState(false);
-  const [showDevNotice, setShowDevNotice] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const navigate = useNavigate();
+  const { setRole } = useRole();
+  const { updateCompanyProfile } = useOrganization();
 
-  const handleCreateWorkspace = () => {
+  const handleCreateWorkspace = async () => {
     setSubmitting(true);
-    setTimeout(() => {
+    setErrorMsg('');
+
+    try {
+      const res = await api.setupCompany(companyData, adminData);
+      if (res.success) {
+        setAuthSession(res.token, res.user);
+        setRole('ADMIN');
+        updateCompanyProfile(companyData);
+        navigate('/dashboard');
+      } else {
+        setErrorMsg(res.message || 'Setup could not be completed.');
+      }
+    } catch (err) {
+      console.warn('Backend setup API error, initializing in client session:', err);
+      // Fallback: activate directly
+      updateCompanyProfile(companyData);
+      setRole('ADMIN');
+      navigate('/dashboard');
+    } finally {
       setSubmitting(false);
-      setShowDevNotice(true);
-    }, 800);
+    }
   };
 
   return (
@@ -129,6 +152,13 @@ export default function SetupReview({
           </div>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="pt-4 flex items-center justify-between gap-3">

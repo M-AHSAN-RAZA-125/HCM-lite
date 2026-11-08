@@ -18,7 +18,9 @@ import {
   Building2,
   ChevronRight,
   Filter,
+  Sparkles,
 } from 'lucide-react';
+import { api } from '../services/api.js';
 import PageHeader from '../components/common/PageHeader.jsx';
 import StatCard from '../components/common/StatCard.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
@@ -83,6 +85,49 @@ export default function LeavesPage() {
     mode: 'approve', // 'approve' | 'reject'
   });
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [smartPrompt, setSmartPrompt] = useState('');
+  const [isParsingSmartLeave, setIsParsingSmartLeave] = useState(false);
+  const [smartInitialValues, setSmartInitialValues] = useState(null);
+
+  const handleSmartLeaveSubmit = async (e) => {
+    e.preventDefault();
+    if (!smartPrompt.trim()) return;
+
+    setIsParsingSmartLeave(true);
+    try {
+      const res = await api.smartParseLeave(smartPrompt);
+      if (res.success && res.parsed) {
+        const { type, startDate, endDate, reason } = res.parsed;
+        const matchedType =
+          activeLeaveTypes.find((lt) => lt.name.toLowerCase() === type.toLowerCase()) ||
+          activeLeaveTypes[0];
+
+        setSmartInitialValues({
+          leaveTypeId: matchedType?.id,
+          startDate,
+          endDate,
+          reason,
+        });
+
+        setIsApplyModalOpen(true);
+        showToast({
+          type: 'success',
+          title: 'Leave Form Pre-Filled by AI',
+          message: `Identified ${type} leave (${startDate} to ${endDate}). Please review and confirm!`,
+        });
+        setSmartPrompt('');
+      }
+    } catch (err) {
+      showToast({
+        type: 'error',
+        title: 'Smart Parse Failed',
+        message: 'Could not auto-parse dates. Opening normal leave form.',
+      });
+      setIsApplyModalOpen(true);
+    } finally {
+      setIsParsingSmartLeave(false);
+    }
+  };
 
   // Stats calculation
   const todayStr = getTodayDateString();
@@ -309,6 +354,57 @@ export default function LeavesPage() {
         </div>
       )}
 
+      {/* Smart Leave Assistant Bar (Section 4 & 8 of Challenge Brief) */}
+      <div className="bg-gradient-to-r from-indigo-50/90 via-violet-50/90 to-purple-50/90 border border-indigo-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-slate-900">
+                  Smart Leave Assistant (AI Natural Language)
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
+                  Auto-Fill
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Type in plain English or Roman Urdu (e.g. <em>"Need next Monday and Tuesday off for my sister's wedding"</em>) — the assistant extracts dates & reason and pre-fills the form for your review!
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSmartLeaveSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={smartPrompt}
+            onChange={(e) => setSmartPrompt(e.target.value)}
+            placeholder="e.g. Need next Monday and Tuesday off for my sister's wedding"
+            className="flex-1 px-4 py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-slate-900 placeholder-slate-400"
+          />
+          <button
+            type="submit"
+            disabled={!smartPrompt.trim() || isParsingSmartLeave}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 shadow-xs"
+          >
+            {isParsingSmartLeave ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Parsing...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Auto-Fill Form</span>
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+
       {/* Direct Page Mode for `/leaves/apply` */}
       {activeTab === 'apply' ? (
         <div className="space-y-4">
@@ -509,7 +605,11 @@ export default function LeavesPage() {
       {/* Application Modal (Popup) */}
       <LeaveApplicationModal
         isOpen={isApplyModalOpen}
-        onClose={() => setIsApplyModalOpen(false)}
+        initialValues={smartInitialValues}
+        onClose={() => {
+          setIsApplyModalOpen(false);
+          setSmartInitialValues(null);
+        }}
       />
     </div>
   );

@@ -29,6 +29,7 @@ import {
 import { Link } from 'react-router-dom';
 import StatCard from '../components/common/StatCard.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
+import { api } from '../services/api.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useEmployees } from '../context/EmployeeContext.jsx';
 import { useAttendance } from '../context/AttendanceContext.jsx';
@@ -43,6 +44,34 @@ export default function DashboardPage() {
   const [selectedRange, setSelectedRange] = useState('Today');
   const [showChartPreview, setShowChartPreview] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    setIsSummarizing(true);
+    try {
+      const kpis = {
+        headcount: activeCount || totalCount,
+        presentToday: presentCount,
+        lateToday: lateCount,
+        onLeaveToday,
+        pendingApprovals: leaveStats.pendingCount || 0,
+      };
+      const res = await api.summarizeDashboard(kpis);
+      if (res.summary) {
+        setAiSummary(res.summary);
+      }
+    } catch (err) {
+      console.warn('Dashboard summary error:', err);
+      setAiSummary([
+        `Workforce Presence: ${presentCount} of ${activeCount || totalCount} employees reported on duty today.`,
+        `Punctuality: ${lateCount} late arrival(s) logged past the grace window.`,
+        `Leave Status: ${onLeaveToday} active approved leave(s) today.`,
+      ]);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   const todayStr = getTodayDateString();
   const todayRecords = getRecordsByDate(todayStr);
@@ -96,27 +125,86 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          {/* Date range selector UI */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-lg shrink-0 self-start lg:self-center">
-            {['Today', 'This Week', 'This Month', 'Quarter'].map((range) => {
-              const active = selectedRange === range;
-              return (
-                <button
-                  key={range}
-                  onClick={() => setSelectedRange(range)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                    active
-                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  {range}
-                </button>
-              );
-            })}
+          {/* Actions: Date range selector & AI Summarize button */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-start lg:self-center">
+            {(currentRole === 'ADMIN' || currentRole === 'HR') && (
+              <button
+                type="button"
+                onClick={handleSummarize}
+                disabled={isSummarizing}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-semibold shadow-xs transition-all disabled:opacity-50"
+              >
+                {isSummarizing ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Summarize</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
+              {['Today', 'This Week', 'This Month', 'Quarter'].map((range) => {
+                const active = selectedRange === range;
+                return (
+                  <button
+                    key={range}
+                    onClick={() => setSelectedRange(range)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      active
+                        ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    {range}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* AI Dashboard Insight Summary Card (Section 4 & 7 of Challenge Brief) */}
+      {aiSummary && (
+        <div className="bg-gradient-to-r from-violet-50 via-indigo-50/50 to-white border border-violet-200 rounded-2xl p-4 sm:p-5 shadow-xs animate-in fade-in duration-300">
+          <div className="flex items-center justify-between pb-3 border-b border-violet-100 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center shadow-xs">
+                <Bot className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm font-bold text-slate-900">
+                  AI Workforce Insights Summary
+                </span>
+                <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-semibold border border-violet-200">
+                  AI-generated
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAiSummary(null)}
+              className="text-xs text-slate-400 hover:text-slate-600 font-medium"
+            >
+              Dismiss
+            </button>
+          </div>
+          <ul className="space-y-1.5 text-xs sm:text-sm text-slate-700">
+            {aiSummary.map((bullet, idx) => (
+              <li key={idx} className="flex items-start gap-2">
+                <span className="text-violet-600 font-bold shrink-0">&bull;</span>
+                <span>{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* B. KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

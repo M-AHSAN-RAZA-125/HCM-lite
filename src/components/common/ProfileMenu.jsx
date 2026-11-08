@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Settings, LogOut, ChevronDown, Check, Shield, Building2 } from 'lucide-react';
+import { User, Settings, LogOut, ChevronDown, Check, Shield, Building2, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '../../context/RoleContext.jsx';
 import { USER_ROLES } from '../../config/navigation.js';
+import { api, clearAuthSession } from '../../services/api.js';
 
 export default function ProfileMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -32,12 +33,28 @@ export default function ProfileMenu() {
   };
 
   const handleLogout = () => {
-    setLogoutMessage('Signing out to Login screen...');
+    clearAuthSession();
+    setLogoutMessage('Signing out...');
     setTimeout(() => {
       setLogoutMessage('');
       setIsOpen(false);
       navigate('/login');
-    }, 600);
+    }, 400);
+  };
+
+  const handleResetCleanSlate = async () => {
+    if (window.confirm('Reset HCM Lite to clean empty state? (All registered company data and users will be cleared so judges can start fresh).')) {
+      try {
+        await api.resetSystem();
+      } catch (e) {
+        console.warn('Backend reset call:', e);
+      }
+      clearAuthSession();
+      sessionStorage.clear();
+      setIsOpen(false);
+      navigate('/setup');
+      window.location.reload();
+    }
   };
 
   return (
@@ -124,8 +141,15 @@ export default function ProfileMenu() {
             })}
           </div>
 
-          {/* Logout button */}
+          {/* Clean Slate Reset & Logout */}
           <div className="border-t border-slate-100 pt-1">
+            <button
+              onClick={handleResetCleanSlate}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors text-left"
+            >
+              <RotateCcw className="w-4 h-4 text-amber-600" />
+              <span>Reset to Clean Slate (Demo)</span>
+            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors text-left"

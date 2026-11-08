@@ -31,6 +31,7 @@ export default function LeaveApplicationModal({
   isOpen = true,
   onClose,
   isPageMode = false,
+  initialValues = null,
 }) {
   const navigate = useNavigate();
   const { activeLeaveTypes, officeRules, activeHolidays } = useOrganization();
@@ -77,6 +78,16 @@ export default function LeaveApplicationModal({
       setSelectedEmployeeId(defaultEmployee.employeeId);
     }
   }, [defaultEmployee, selectedEmployeeId]);
+
+  // Sync initialValues from Smart Leave pre-filler
+  useEffect(() => {
+    if (initialValues) {
+      if (initialValues.leaveTypeId) setSelectedLeaveTypeId(initialValues.leaveTypeId);
+      if (initialValues.startDate) setStartDate(initialValues.startDate);
+      if (initialValues.endDate) setEndDate(initialValues.endDate);
+      if (initialValues.reason) setReason(initialValues.reason);
+    }
+  }, [initialValues]);
 
   // Sync selected leave type if active leave types load
   useEffect(() => {
